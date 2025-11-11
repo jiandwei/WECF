@@ -1,0 +1,65 @@
+% ==================== 基础包 ====================
+% \usepackage[utf8]{inputenc}
+% \usepackage[T1]{fontenc}
+% \usepackage[english]{babel}
+\usepackage{amsmath,amsfonts,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage[colorinlistoftodos]{todonotes}
+\usepackage{xeCJK}
+
+% ==================== 页面设置 ====================
+\usepackage[margin=2cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% ==================== 字体设置（Windows） ====================
+% 英文字体
+\setmainfont{Times New Roman}
+% 中文字体（推荐支持粗体的思源宋体）
+\setCJKmainfont{Source Han Serif SC}
+\setCJKmonofont{Source Han Mono SC}
+
+% ==================== 图表支持 ====================
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+
+% ==================== 颜色和链接 ====================
+\usepackage{xcolor}
+\usepackage[colorlinks=true,
+    linkcolor=blue,
+    citecolor=green,
+    urlcolor=red]{hyperref}
+
+% ==================== 参考文献 ====================
+\usepackage[style=science,backend=biber,sorting=nyt]{biblatex}
+\addbibresource{references/references.bib}
+
+% ==================== 定理环境 ====================
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+
+% =================一些包的设置=====================
+\newcommand{\unsure}[1]{\todo[inline,linecolor=red,backgroundcolor=red!20,bordercolor=red]{#1}}
+% 蓝色 - 用于需要修改的内容
+\newcommand{\change}[1]{\todo[inline,linecolor=blue,backgroundcolor=blue!20,bordercolor=blue]{#1}}
+% 绿色 - 用于补充信息、说明
+\newcommand{\info}[1]{\todo[inline,linecolor=green,backgroundcolor=green!20,bordercolor=green]{#1}}
+% 橙色 - 用于改进建议
+\newcommand{\improvement}[1]{\todo[inline,linecolor=orange,backgroundcolor=orange!20,bordercolor=orange]{#1}}
+% 紫色 - 用于疑问
+\newcommand{\question}[1]{\todo[inline,linecolor=purple,backgroundcolor=purple!20,bordercolor=purple]{#1}}
+% 灰色 - 用于完成状态
+\newcommand{\done}[1]{\todo[inline,linecolor=gray,backgroundcolor=gray!20,bordercolor=gray]{#1}}

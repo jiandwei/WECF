@@ -1,0 +1,47 @@
+\documentclass[12pt,a4paper]{article}
+
+% ==================== 导入配置 ====================
+\input{preamble}
+
+% ==================== 标题信息 ====================
+\title{Title of Your Theoretical Econometrics Paper}
+\author{毕家伟\\
+        \small 东北财经大学\\
+        \small \texttt{jiawei0655@gmail.com}}
+\date{\today}
+
+% ==================== 文档开始 ====================
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+    This is the abstract of your paper. It should provide a concise summary of the research question, methodology, main findings, and contributions.
+\end{abstract}
+
+\noindent\textbf{Keywords:} Keyword1, Keyword2, Keyword3, Keyword4
+
+\noindent\textbf{JEL Classification:} C01, C13, C18
+
+\clearpage
+
+% ==================== 正文部分 ====================
+\input{sections/01_introduction}
+\input{sections/02_literature_review}
+\input{sections/03_theoretical_framework}
+\input{sections/04_econometric_methodology}
+\input{sections/05_identification_strategy}
+\input{sections/06_empirical_results}
+\input{sections/07_robustness_checks}
+\input{sections/08_conclusion}
+
+% ==================== 参考文献 ====================
+\clearpage
+\printbibliography
+
+% ==================== 附录 ====================
+\clearpage
+\appendix
+\input{sections/appendix}
+
+\end{document}
