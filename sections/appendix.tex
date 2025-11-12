@@ -1,27 +1,685 @@
-\section{Additional Tables and Figures}
-\label{sec:appendix_tables}
+\section{预备知识与假设条件}
 
-This appendix contains additional tables and figures.
+\subsection{基本设定}
 
-\begin{table}[H]
-    \centering
-    \caption{Additional Results}
-    \label{tab:additional}
-    \begin{tabular}{lccc}
-        \toprule
-                 & (1)    & (2)    & (3)    \\
-        \midrule
-        Variable & 0.00   & 0.00   & 0.00   \\
-                 & (0.00) & (0.00) & (0.00) \\
-        \bottomrule
-    \end{tabular}
-\end{table}
+\textbf{数据结构}：观测到函数型时间序列 $\{X_t: \mathcal{T} \to \mathbb{R}\}_{t=1}^T$，其中 $\mathcal{T} = [0,1]$ 是紧致区间。
 
-\section{Proofs}
-\label{sec:appendix_proofs}
+\textbf{结构断点模型}：
+\[
+    X_t(s) = \mu_{j(t)}(s) + \sum_{k=1}^{\infty} \xi_{k,t} \psi_{k,j(t)}(s), \quad s \in \mathcal{T}
+\]
+其中：
+\begin{itemize}
+    \item $j(t)=j$ 当 $t\in (T_{j-1},T_j]$，$j=1,\ldots,M_0+1$。
+    \item $\{\psi_{k,j}\}_{k=1}^{\infty}$ 是第 $j$ 个 regime 的正交基函数
+    \item $\{\xi_{k,t}\}$ 是随机系数序列
+\end{itemize}
 
-This section contains proofs of the main theoretical results.
+\subsection{假设条件体系}
 
-\subsection{Proof of Theorem \ref{thm:main}}
+\begin{assumption}[α-混合性]\label{ass:A1}
+    存在常数 $C > 0$ 和 $\rho \in (0,1)$ 使得 $\alpha$-混合系数满足
+    \[
+        \alpha(n) \leq C \rho^n, \quad \forall n \geq 1.
+    \]
+\end{assumption}
 
-The detailed proof is as follows...
+\textbf{证明验证方法}：对于满足如下结构的过程可验证 \cref{ass:A1}：
+\[
+    X_t(s) = \sum_{l=0}^{\infty} \Psi_l(s, \varepsilon_{t-l}),
+\]
+其中 $\{\varepsilon_t\}$ 是 i.i.d. 噪声，$\Psi_l$ 满足 $\sum_{l=0}^{\infty} \|\Psi_l\|_{\infty} < \infty$。
+
+\begin{lemma}[验证混合性]\label{lem:mixing}
+    若 $X_t$ 可表示为上述 Bernoulli shift 形式，则
+    \[
+        \alpha(n) \leq C \sum_{l=n}^{\infty} \|\Psi_l\|_{\infty}.
+    \]
+\end{lemma}
+
+\begin{proof}
+    \begin{align*}
+        \alpha(n) & = \sup_{A \in \mathcal{F}_{-\infty}^0, B \in \mathcal{F}_n^{\infty}} |P(A \cap B) - P(A)P(B)|                         \\
+                  & \leq \sup_{f,g: \|f\|_{\infty}, \|g\|_{\infty} \leq 1} |E[f(X_0, X_{-1}, \ldots) g(X_n, X_{n+1}, \ldots)] - E[f]E[g]| \\
+                  & \leq E\left[\sup_f |f(X_0, \ldots) - f(X_0^*, \ldots)|\right],
+    \end{align*}
+    其中 $X_t^*$ 是用独立噪声 $\varepsilon_t^*$ 替换 $\varepsilon_t$（$t \geq n$）构造的。由于
+    \[
+        \|X_n - X_n^*\|_{\infty} \leq \sum_{l=n}^{\infty} \|\Psi_l\|_{\infty} \cdot \|\varepsilon_0 - \varepsilon_0^*\|_{\infty},
+    \]
+    然后利用耦合不等式得证。
+\end{proof}
+
+\begin{assumption}[矩条件]\label{ass:A2}
+    \[
+        E\left[\left(\int_{\mathcal{T}} X_t^2(s)\,ds\right)^{2+\delta}\right] < \infty
+    \]
+    对某个 $\delta > 0$ 成立。
+\end{assumption}
+
+\begin{assumption}[断点大小]\label{ass:A3}
+    对所有 $j = 1, \ldots, M_0$，断点大小满足
+    \[
+        \Delta_j = \inf_{u \in U} \|\phi_{j+1}(u) - \phi_j(u)\|_{L^2(W)} > 0,
+    \]
+    其中 $\phi_j(u) = E[e^{iu\int X_t(s)\,ds} \mid t \in \text{regime } j]$。
+\end{assumption}
+
+\begin{assumption}[协方差结构的分段平稳性]\label{ass:A4}
+    \improvement{这是我们相比 Boniece 的关键区别!}
+
+    在每个 regime 内，广义误差函数 $\varepsilon_t(u) = e^{iu\int X_t(s)\,ds} - \phi_j(u)$ 的长期协方差核
+    \[
+        \Omega_j(u,v) = \sum_{l=-\infty}^{\infty} \operatorname{Cov}[\varepsilon_0^{(j)}(u), \varepsilon_l^{(j)}(v)]
+    \]
+    存在且满足：
+    \begin{enumerate}
+        \item $\Omega_j(u,v)$ 作为 $L^2(U \times U, W \otimes W)$ 的算子是正定的；
+        \item $\sup_j \|\Omega_j\|_{\mathrm{op}} < \infty$；
+        \item \textbf{关键}：不同 regime 的协方差核可以不同，即 $\Omega_j \neq \Omega_k$ for $j \neq k$。
+    \end{enumerate}
+\end{assumption}
+
+\begin{remark}
+    这与 Boniece 的 Assumption A.4 不同，他们假设全局 $\Omega(u,v)$ 不变。我们的设定更现实但理论更复杂。
+\end{remark}
+
+\begin{assumption}[权重函数]\label{ass:A5}
+    权重函数 $W: \mathbb{R} \to \mathbb{R}_+$ 满足：
+    \begin{enumerate}
+        \item $W(u)$ 是连续、对称的概率密度；
+        \item $\int_{\mathbb{R}} |u|^4 W(u)\,du < \infty$；
+        \item $W(u)$ 的特征函数 $\hat{W}(t) = \int e^{itu}W(u)\,du$ 在 $\mathbb{R}$ 上平方可积。
+    \end{enumerate}
+
+    \begin{remark}{典型选择}
+        $W(u) = (2\pi)^{-1/2}e^{-u^2/2}$（标准正态密度）。
+
+    \end{remark}
+\end{assumption}
+\begin{assumption}[trimming 参数]\label{ass:A6}
+    存在 $\varepsilon \in (0, 1/4)$ 使得对所有 $j$，
+    \[
+        \min\{r_j^0 - r_{j-1}^0\} \geq 2\varepsilon.
+    \]
+\end{assumption}
+
+\begin{assumption}[算子的谱间隙]\label{ass:A7}
+    协方差算子 $C_j: L^2(\mathcal{T}) \to L^2(\mathcal{T})$ 定义为
+    \[
+        (C_j f)(s) = \int_{\mathcal{T}} \operatorname{Cov}[X_t^{(j)}(s), X_t^{(j)}(t)] f(t)\,dt
+    \]
+    的特征值 $\lambda_{1,j} \geq \lambda_{2,j} \geq \cdots$ 满足
+    \[
+        \inf_j (\lambda_{k,j} - \lambda_{k+1,j}) > 0, \quad \forall k \geq 1.
+    \]
+\end{assumption}
+
+\section{泛函中心极限定理的分段版本}
+
+\subsection{单个 regime 内的 FCLT}
+
+\begin{theorem}[Regime 内的函数型 CLT]\label{thm:FCLT-single}
+    在 \cref{ass:A1}--\cref{ass:A2} 下，对固定的 regime $j$，定义
+    \[
+        S_{n,j}(r, u) = \frac{1}{\sqrt{n}} \sum_{i=1}^{\lfloor nr \rfloor} \varepsilon_i^{(j)}(u),
+    \]
+    其中 $\varepsilon_i^{(j)}(u) = e^{iu\int X_{T_{j-1}+i}(s)\,ds} - \phi_j(u)$。
+
+    则在 $C[0,1] \times L^2(U, W)$ 上，
+    \[
+        S_{n,j}(\cdot, \cdot) \Rightarrow B_j(\cdot, \cdot),
+    \]
+    其中 $B_j(r, u)$ 是均值为零的 Gaussian 过程，协方差函数为
+    \[
+        E[B_j(r, u)B_j(s, v)] = \min\{r, s\} \cdot \Omega_j(u, v).
+    \]
+\end{theorem}
+
+\begin{proof}
+    \textbf{Step 1：有限维分布收敛}
+
+    固定 $(r_1, \ldots, r_k) \in [0,1]^k$ 和 $(u_1, \ldots, u_m) \in U^m$。定义向量
+    \[
+        Z_n = (S_{n,j}(r_1, u_1), S_{n,j}(r_1, u_2), \ldots, S_{n,j}(r_k, u_m))^\top \in \mathbb{R}^{km}.
+    \]
+
+    我们需证明 $Z_n \xrightarrow{d} N(0, \Sigma)$，其中
+    \[
+        \Sigma_{(i,l),(i',l')} = \min\{r_i, r_{i'}\} \cdot \Omega_j(u_l, u_{l'}).
+    \]
+
+    \begin{lemma}[混合序列的 CLT]\label{lem:clt-mixing}
+        \info{这个是从Ibragimov \& Linnik, 1971这里得到的}
+        若 $\{Y_i\}$ 是均值为零的强混合序列，满足
+        \[
+            \sum_{n=1}^{\infty} \alpha^{\delta/(2+\delta)}(n) < \infty
+        \]
+        且 $E|Y_1|^{2+\delta} < \infty$，则
+        \[
+            \frac{1}{\sqrt{n}} \sum_{i=1}^n Y_i \xrightarrow{d} N(0, \sigma^2),
+        \]
+        其中 $\sigma^2 = \sum_{l=-\infty}^{\infty} \operatorname{Cov}(Y_0, Y_l)$。
+    \end{lemma}
+
+    应用 \cref{lem:clt-mixing} 到每个分量：对线性组合
+    \todo{这里需要进行修改，为什么是引理，但是正文仍然是定理}
+    \[
+        \sum_{i=1}^{km} a_i Z_n^{(i)} = \frac{1}{\sqrt{n}} \sum_{t=1}^{\lfloor n r_{\max} \rfloor} \left[\sum_{i,l} a_{(i,l)} \mathbb{1}\{t \leq \lfloor nr_i \rfloor\} \varepsilon_t^{(j)}(u_l)\right].
+    \]
+
+    由 Cramér–Wold 定理，只需证明每个线性组合收敛到正态分布。由于 $\{\varepsilon_t^{(j)}(u)\}$ 满足 \cref{ass:A1} 的混合性（继承自 $\{X_t\}$），且
+    \[
+        E|\varepsilon_1^{(j)}(u)|^{2+\delta} \leq E\left[|e^{iu\int X_1(s)\,ds}|^{2+\delta}\right] + |\phi_j(u)|^{2+\delta} \leq 1 + 1 < \infty,
+    \]
+    应用 \cref{lem:clt-mixing} 得有限维收敛。
+
+    \textbf{Step 2：紧性（Tightness）}
+
+    需证明对任意 $\eta > 0$，存在紧集 $K_{\eta} \subset C[0,1] \times L^2(U, W)$ 使得
+    \[
+        \limsup_{n \to \infty} P(S_{n,j} \notin K_{\eta}) < \eta.
+    \]
+
+    \begin{lemma}[函数空间的紧性判据]\label{lem:tightness}
+        若对任意 $\epsilon > 0$ 和 $\eta > 0$，存在 $\delta > 0$ 使得
+        \[
+            \limsup_{n \to \infty} P\left(\sup_{\substack{|r-s|<\delta \\ \|u-v\|<\delta}} |S_{n,j}(r,u) - S_{n,j}(s,v)| > \epsilon\right) < \eta,
+        \]
+        则 $\{S_{n,j}\}$ 是紧的。
+    \end{lemma}
+
+    \textbf{控制模量}：
+    \question{什么是控制模量？}
+    \begin{align*}
+        E|S_{n,j}(r,u) - S_{n,j}(s,v)|^2
+         & = \frac{1}{n} E\left|\sum_{i=\lfloor ns \rfloor+1}^{\lfloor nr \rfloor} \varepsilon_i^{(j)}(u) + \sum_{i=1}^{\lfloor ns \rfloor} [\varepsilon_i^{(j)}(u) - \varepsilon_i^{(j)}(v)]\right|^2 \\
+         & \leq \frac{1}{n} \cdot n|r-s| \cdot \|\Omega_j\|_{\mathrm{op}} + \frac{1}{n} \cdot ns \cdot E|\varepsilon_1^{(j)}(u) - \varepsilon_1^{(j)}(v)|^2                                            \\
+         & \leq C(|r-s| + \|u-v\|),
+    \end{align*}
+    其中第二项利用了
+    \[
+        |\varepsilon_1^{(j)}(u) - \varepsilon_1^{(j)}(v)| = |e^{iu\int X_1(s)\,ds} - e^{iv\int X_1(s)\,ds}| \leq |u-v| \cdot \left|\int X_1(s)\,ds\right|.
+    \]
+    \question{这个为什么可以成立？}
+    由 Chebyshev 不等式，
+    \[
+        P\left(|S_{n,j}(r,u) - S_{n,j}(s,v)| > \epsilon\right) \leq \frac{C(|r-s| + \|u-v\|)}{\epsilon^2}.
+    \]
+
+    选择 $\delta = \epsilon^3/C$，则右边 $< \epsilon$。应用 \cref{lem:tightness} 得紧性。
+
+
+    \textbf{Step 3：唯一性}
+    极限过程的唯一性由协方差结构唯一确定（Gaussian 过程的特征）。
+\end{proof}
+
+\subsection{跨 regime 的联合弱收敛}
+\improvement{这个是我们方法的创新点}
+\question{那么为何这里是我们方法的创新点？}
+
+\begin{theorem}[全局分段 FCLT]\label{thm:FCLT-global}
+    在\cref{ass:A1}--\cref{ass:A4} 下，定义全样本的部分和过程
+    \[
+        S_T(r, u) = \frac{1}{\sqrt{T}} \sum_{t=1}^{\lfloor Tr \rfloor} \varepsilon_t(u),
+    \]
+    其中 $\varepsilon_t(u) = e^{iu\int X_t(s)\,ds} - \phi_{j(t)}(u)$。
+
+    则在 $C[0,1] \times L^2(U, W)$ 上，
+    \[
+        S_T(\cdot, \cdot) \Rightarrow \mathcal{B}(\cdot, \cdot),
+    \]
+    其中 $\mathcal{B}(r, u)$ 是 \textbf{分段} Gaussian 过程：
+    \[
+        \mathcal{B}(r, u) = \sum_{j=1}^{M_0+1} \mathbb{1}\{r_{j-1}^0 < r \leq r_j^0\} \left[B_j(r - r_{j-1}^0, u) + B_j(r_{j-1}^0, u)\right],
+    \]
+    其中 $\{B_j\}_{j=1}^{M_0+1}$ 是 \textbf{独立} 的 Gaussian 过程，每个满足 \cref{thm:FCLT-single}。
+
+    \textbf{关键性质}：
+    \begin{enumerate}
+        \item $\mathcal{B}(r, u)$ 在 $r = r_j^0$ 处 \textbf{连续}（路径连续）；
+        \item 但在 $r_j^0$ 处 \textbf{不可微}（因为协方差核 $\Omega_j$ 变化）；
+        \item 协方差函数为
+              \[
+                  E[\mathcal{B}(r, u)\mathcal{B}(s, v)] = \sum_{j=1}^{M_0+1} \min\{(r - r_{j-1}^0)^+, (s - r_{j-1}^0)^+\} \cdot \Omega_j(u, v) \cdot \mathbb{1}\{r, s \in (r_{j-1}^0, r_j^0]\}.
+              \]
+    \end{enumerate}
+\end{theorem}
+
+\begin{proof}
+    \textbf{Step 1：分段分解}
+
+    将 $S_T(r, u)$ 分解为各 regime 的贡献：
+    \[
+        S_T(r, u) = \sum_{j=1}^{M_0+1} \frac{1}{\sqrt{T}} \sum_{t=T_{j-1}^0+1}^{\min(T_j^0, \lfloor Tr \rfloor)} \varepsilon_t(u).
+    \]
+
+    \begin{lemma}[Regime 间的独立性]\label{lem:asym-indep}
+        对 $j \neq k$，随机过程
+        \[
+            S_{T,j}(r, u) = \frac{1}{\sqrt{T}} \sum_{t=T_{j-1}^0+1}^{T_j^0} \varepsilon_t(u), \quad S_{T,k}(r, u) = \frac{1}{\sqrt{T}} \sum_{t=T_{k-1}^0+1}^{T_k^0} \varepsilon_t(u)
+        \]
+        是 \textbf{渐近独立} 的。
+    \end{lemma}
+
+    \begin{proof}
+        利用混合性，对任意有界连续函数 $f, g$，
+        \begin{align*}
+            |E[f(S_{T,j}) g(S_{T,k})] - E[f(S_{T,j})] E[g(S_{T,k})]| & \leq \|f\|_{\infty} \|g\|_{\infty} \cdot \alpha(T_{k-1}^0 - T_j^0) \\
+                                                                     & \leq C \rho^{T(r_{k-1}^0 - r_j^0)} \to 0
+        \end{align*}
+        当 $T \to \infty$ 时。
+    \end{proof}
+
+
+
+    \textbf{Step 2：标准化变换}
+
+    对每个 regime $j$，定义标准化过程
+    \[
+        \tilde{S}_{T,j}(r, u) = \frac{1}{\sqrt{T(r_j^0 - r_{j-1}^0)}} \sum_{t=T_{j-1}^0+1}^{T_{j-1}^0 + \lfloor T(r_j^0 - r_{j-1}^0) r \rfloor} \varepsilon_t(u).
+    \]
+
+    由 \cref{thm:FCLT-single}，
+    \[
+        \tilde{S}_{T,j}(\cdot, \cdot) \Rightarrow B_j(\cdot, \cdot).
+    \]
+
+
+
+    \textbf{Step 3：拼接各段}
+
+    全局过程可表示为
+    \[
+        S_T(r, u) = \sqrt{T} \sum_{j: r_j^0 < r} (r_j^0 - r_{j-1}^0) \tilde{S}_{T,j}(1, u) + \sqrt{T}(r - r_{j(r)-1}^0) \tilde{S}_{T,j(r)}\left(\frac{r - r_{j(r)-1}^0}{r_{j(r)}^0 - r_{j(r)-1}^0}, u\right),
+    \]
+    其中 $j(r) = \max\{j: r_j^0 < r\}$。
+
+    \begin{lemma}[路径连续性]\label{lem:path-cont}
+        在 $r = r_j^0$ 处，
+        \[
+            \lim_{r \uparrow r_j^0} S_T(r, u) = \lim_{r \downarrow r_j^0} S_T(r, u) \quad \text{in probability}.
+        \]
+    \end{lemma}
+
+    \begin{proof}
+        \begin{align*}
+             & S_T(r_j^0 + h, u) - S_T(r_j^0, u)                                                                                   \\
+             & = \frac{1}{\sqrt{T}} \sum_{t=T_j^0+1}^{T_j^0 + \lfloor Th \rfloor} \varepsilon_t(u)                                 \\
+             & = \sqrt{h} \cdot \frac{1}{\sqrt{\lfloor Th \rfloor}} \sum_{t=T_j^0+1}^{T_j^0 + \lfloor Th \rfloor} \varepsilon_t(u) \\
+             & = \sqrt{h} \cdot O_P(1) \to 0
+        \end{align*}
+        当 $h \to 0$ 时。
+    \end{proof}
+
+
+
+    \textbf{Step 4：联合弱收敛}
+    由 Skorohod 表示定理（Billingsley, 1968, Theorem 6.7），存在概率空间使得
+    \question{这里的这个Skorohod定理说的是什么东西？}
+    \[
+        \sup_{r \in [0,1], u \in U} |S_T(r, u) - \mathcal{B}(r, u)| \to 0 \quad \text{a.s.}
+    \]
+
+    因此在原空间上有弱收敛。
+\end{proof}
+
+\subsection{Gaussian Bridge 的构造}
+
+\begin{definition}
+    定义分段 Gaussian bridge 为
+    \[
+        \mathcal{B}^0(r, u) = \mathcal{B}(r, u) - r \cdot \mathcal{B}(1, u).
+    \]
+\end{definition}
+
+\begin{proposition}
+    $\mathcal{B}^0(r, u)$ 满足：
+    \begin{enumerate}
+        \item $\mathcal{B}^0(0, u) = \mathcal{B}^0(1, u) = 0$；
+        \item 协方差函数为
+              \[
+                  E[\mathcal{B}^0(r, u)\mathcal{B}^0(s, v)] = \sum_{j=1}^{M_0+1} [\min\{r, s\} - rs] \cdot \Omega_j(u, v) \cdot \mathbb{1}\{r, s \in (r_{j-1}^0, r_j^0]\}.
+              \]
+    \end{enumerate}
+\end{proposition}
+
+\begin{proof}
+    直接计算
+    \begin{align*}
+        E[\mathcal{B}^0(r, u)\mathcal{B}^0(s, v)] & = E[\mathcal{B}(r, u)\mathcal{B}(s, v)] - rE[\mathcal{B}(r, u)\mathcal{B}(1, v)]          \\
+                                                  & \quad - sE[\mathcal{B}(1, u)\mathcal{B}(s, v)] + rsE[\mathcal{B}(1, u)\mathcal{B}(1, v)].
+    \end{align*}
+
+    当 $r, s$ 在同一 regime 内时（如 regime $j$），
+    \[
+        E[\mathcal{B}(r, u)\mathcal{B}(s, v)] = \min\{r - r_{j-1}^0, s - r_{j-1}^0\} \cdot \Omega_j(u, v), \quad
+        E[\mathcal{B}(r, u)\mathcal{B}(1, v)] = (r - r_{j-1}^0) \cdot \Omega_j(u, v).
+    \]
+
+    代入得
+    \[
+        [\min\{r - r_{j-1}^0, s - r_{j-1}^0\} - r(r_j^0 - r_{j-1}^0) - s(r_j^0 - r_{j-1}^0) + rs] \cdot \Omega_j(u, v).
+    \]
+
+    在 $(r_{j-1}^0, r_j^0]$ 上归一化后得到标准 bridge 形式。
+\end{proof}
+
+\section{断点估计的渐近理论}
+
+\subsection{目标函数的一致收敛}
+
+\begin{theorem}[SSGR 的大数定律]\label{thm:LLN-SSGR}
+    在 \cref{ass:A1}--\cref{ass:A4} 下，定义
+    \[
+        Q_T(r_1, \ldots, r_M) = \frac{1}{T} \mathrm{SSGR}_M(r_1, \ldots, r_M).
+    \]
+
+    则对任意紧集 $K \subset [0,1]^M$，
+    \[
+        \sup_{(r_1,\ldots,r_M) \in K} |Q_T(r_1, \ldots, r_M) - Q(r_1, \ldots, r_M)| \xrightarrow{\text{a.s.}} 0,
+    \]
+    其中
+    \[
+        Q(r_1, \ldots, r_M) = \sum_{j=1}^{M+1} (r_j - r_{j-1}) \int_U \operatorname{Var}[\varepsilon_t^{(j_r)}(u)] W(u)\,du,
+    \]
+    $j_r$ 表示 $(r_{j-1}, r_j]$ 中真实断点所属的 regime。
+\end{theorem}
+
+\begin{proof}
+    \textbf{Step 1：展开 SSGR}
+
+    \begin{align*}
+        \mathrm{SSGR}_M & = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_U \left|e^{iu\int X_t(s)\,ds} - \tilde{\phi}_j(u)\right|^2 W(u)\,du                                               \\
+                        & = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_U \left|\varepsilon_t(u) + [\phi_{j(t)}^0(u) - \tilde{\phi}_j(u)]\right|^2 W(u)\,du                               \\
+                        & = \underbrace{\sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_U |\varepsilon_t(u)|^2 W(u)\,du}_{I_1}                                                                \\
+                        & \quad + \underbrace{2\sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_U \operatorname{Re}[\varepsilon_t(u) (\phi_{j(t)}^0(u) - \tilde{\phi}_j(u))^*] W(u)\,du}_{I_2} \\
+                        & \quad + \underbrace{\sum_{j=1}^{M+1} (T_j - T_{j-1}) \int_U |\phi_{j(t)}^0(u) - \tilde{\phi}_j(u)|^2 W(u)\,du}_{I_3}.
+    \end{align*}
+
+
+
+    \textbf{Step 2：控制 $I_1$ 项}
+
+    \begin{lemma}\label{lem:I1}
+        在每个 segment 内，
+        \[
+            \frac{1}{T_j - T_{j-1}} \sum_{t=T_{j-1}+1}^{T_j} \int_U |\varepsilon_t(u)|^2 W(u)\,du \xrightarrow{\text{a.s.}} \int_U E[|\varepsilon_1^{(j_r)}(u)|^2] W(u)\,du.
+        \]
+    \end{lemma}
+
+    \begin{proof}
+        由遍历定理（Ergodic Theorem，Krengel, 1985），对平稳遍历序列
+        \question{这个是什么，要找到这个文件}
+        \[
+            \frac{1}{n} \sum_{i=1}^n g(Y_i) \xrightarrow{\text{a.s.}} E[g(Y_1)].
+        \]
+
+        在 segment $(T_{j-1}, T_j]$ 内，若该 segment 完全包含在某个真实 regime $j_r$ 中（即不跨越断点），则 $\{\varepsilon_t(u)\}_{t=T_{j-1}+1}^{T_j}$ 是平稳混合的（由 \cref{ass:A1}），应用遍历定理得
+        \[
+            \frac{1}{T_j - T_{j-1}} \sum_{t=T_{j-1}+1}^{T_j} |\varepsilon_t(u)|^2 \xrightarrow{\text{a.s.}} E[|\varepsilon_1^{(j_r)}(u)|^2] = \Omega_{j_r}(u, u).
+        \]
+
+        对 $u$ 积分（由 Fubini 定理）得证。
+        \todo{这个Fubini定理说的应该是可交换的事情}
+    \end{proof}
+
+    \textbf{Step 3：控制 $I_2$ 项（关键）}
+
+    \begin{lemma}\label{lem:I2}
+        交叉项满足
+        \[
+            \frac{1}{\sqrt{T}} \sum_{t=T_{j-1}+1}^{T_j} \int_U \varepsilon_t(u) (\phi_{j(t)}^0(u) - \tilde{\phi}_j(u))^* W(u)\,du = o_P(T).
+        \]
+    \end{lemma}
+
+    \begin{proof}
+        分两种情况：
+
+        \textbf{情况 1}：segment $(T_{j-1}, T_j]$ 完全在某个真实 regime 内。
+        则 $\phi_{j(t)}^0(u) = \phi_{j_r}^0(u)$ 不依赖于 $t$，且
+        \[
+            \tilde{\phi}_j(u) = \frac{1}{T_j - T_{j-1}} \sum_{t=T_{j-1}+1}^{T_j} e^{iu\int X_t(s)\,ds} \xrightarrow{\text{a.s.}} \phi_{j_r}^0(u).
+        \]
+
+        因此
+        \[
+            \phi_{j(t)}^0(u) - \tilde{\phi}_j(u) = o_P(1),
+        \]
+        从而
+        \[
+            \left|\sum_{t=T_{j-1}+1}^{T_j} \varepsilon_t(u) (\phi_{j(t)}^0(u) - \tilde{\phi}_j(u))^*\right| \leq \left|\sum_{t=T_{j-1}+1}^{T_j} \varepsilon_t(u)\right| \cdot |\phi_{j_r}^0(u) - \tilde{\phi}j(u)| = O_P(\sqrt{T_j - T{j-1}}) \cdot o_P(1) = o_P(\sqrt{T})
+        \]
+        \textbf{情况2：}segment $(T_{j-1}, T_j]$ 跨越真实断点 $r_k^{0}$
+        不失一般性，假设 $T_{j-1} < T_k^{0} < T_j$。则
+        $\widetilde{\phi}_j(u)=\lambda_j\phi_k^{0}(u)+(1-\lambda_j)\phi_{k+1}^{0}(u)$，其中 $\lambda_j= \frac{\left(T_k^{0}-T_{j-1}\right)}{T_j-T_{j-1}}$
+        交叉项可分解为
+        \[
+            \begin{aligned}
+                 & \sum_{t=T_{j-1}+1}^{T_j} \varepsilon_t(u) (\phi_{j(t)}^0(u) - \tilde{\phi}_j(u))^*                                                                                                     \\
+                 & = \sum_{t=T_{j-1}+1}^{T_k^0} \varepsilon_t(u) [\phi_k^0(u) - \tilde{\phi}_j(u)]^* + \sum_{t=T_k^0+1}^{T_j} \varepsilon_t(u) [\phi_{k+1}^0(u) - \tilde{\phi}_j(u)]^*                    \\
+                 & = \sum_{t=T_{j-1}+1}^{T_k^0} \varepsilon_t(u) [(1-\lambda_j)(\phi_k^0(u) - \phi_{k+1}^0(u))]^* + \sum_{t=T_k^0+1}^{T_j} \varepsilon_t(u) [-\lambda_j(\phi_k^0(u) - \phi_{k+1}^0(u))]^*
+            \end{aligned}
+        \]
+        注意到 $\sum_{t=T_{j-1}+1}^{T_k^0} \varepsilon_t(u) = O_P(\sqrt{T_k^0 - T_{j-1}})$，而
+        $$(1-\lambda_j) = \frac{T_j - T_k^0}{T_j - T_{j-1}}$$
+
+        因此该项的贡献为
+        $$O_P(\sqrt{T_k^0 - T_{j-1}}) \cdot \frac{T_j - T_k^0}{T_j - T_{j-1}} \cdot \|\Delta_k\| = O_P\left(\frac{\sqrt{T_k^0 - T_{j-1}}(T_j - T_k^0)}{T_j - T_{j-1}}\right)$$
+
+        当 $T_j - T_{j-1} \asymp T$ 时（由A.6保证），此项为 $O_P(\sqrt{T})$，因此
+        $$\frac{1}{\sqrt{T}} \cdot O_P(\sqrt{T}) = O_P(1)$$
+
+        在 $I_2$ 中的贡献为 $O_P(\sqrt{T})$，相对于 $I_1$ 和 $I_3$ 的 $O(T)$ 是低阶项。
+
+        \textbf{Step4:分析 $I_3$ 项（断点惩罚项）}
+        \begin{lemma}\label{lem:I3}
+            $$\frac{1}{T} I_3 \xrightarrow{P} \begin{cases}
+                    0                                                              & \text{if } (r_1, \ldots, r_M) = (r_1^0, \ldots, r_{M_0}^0) \\
+                    \sum_{j: \text{misaligned}} (r_j - r_{j-1}) \|\Delta_{j_r}\|^2 & \text{otherwise}
+                \end{cases}$$
+        \end{lemma}
+        \begin{proof}
+            当某个segment跨越真实断点时，
+            $$\int_U |\phi_{j(t)}^0(u) - \tilde{\phi}_j(u)|^2 W(u)du = \int_U |\lambda_j \phi_k^0(u) + (1-\lambda_j)\phi_{k+1}^0(u) - \phi_{j(t)}^0(u)|^2 W(u)du$$
+            \begin{itemize}
+                \item 若 $t \in \text{regime } k$：$\phi_{j(t)}^0 = \phi_k^0$，则
+                      $$= (1-\lambda_j)^2 \|\Delta_k\|^2$$
+                \item 若 $t \in \text{regime } k+1$：$\phi_{j(t)}^0 = \phi_{k+1}^0$，则
+                      $$= \lambda_j^2 \|\Delta_k\|^2$$
+            \end{itemize}
+            因此
+            $$I_3 = (T_k^0 - T_{j-1})(1-\lambda_j)^2 \|\Delta_k\|^2 + (T_j - T_k^0)\lambda_j^2 \|\Delta_k\|^2$$
+
+            利用 $\lambda_j = (T_k^0 - T_{j-1})/(T_j - T_{j-1})$，可化简为
+            $$I_3 = \frac{(T_k^0 - T_{j-1})(T_j - T_k^0)}{T_j - T_{j-1}} \|\Delta_k\|^2$$
+
+            除以 $T$ 得
+            $$\frac{I_3}{T} = \frac{(r_k^0 - r_{j-1})(r_j - r_k^0)}{r_j - r_{j-1}} \|\Delta_k\|^2 + o(1)$$
+
+            这是严格正的(\cref{ass:A3})
+        \end{proof}
+        \textbf{Step:5 一致收敛性}
+        结合引理\cref{lem:I1,lem:I2,lem:I3}，我们有$$Q_T(r_1, \ldots, r_M) = \frac{1}{T}[I_1 + I_2 + I_3] \xrightarrow{a.s.} Q(r_1, \ldots, r_M)$$
+        \info{一致性利用随机等度连续性}
+        \begin{lemma}
+            对任意 $\epsilon > 0$，存在 $\delta > 0$ 使得
+            $$\limsup_{T \to \infty} P\left(\sup_{\|(r,r')\| < \delta} |Q_T(r) - Q_T(r')| > \epsilon\right) = 0$$
+        \end{lemma}
+        \begin{proof}
+            $$|Q_T(r) - Q_T(r')| \leq \sum_{j=1}^M |r_j - r_j'| \cdot \sup_t \int_U |\varepsilon_t(u)|^2 W(u)du$$
+            由\cref{ass:A2}，$\sup_t E[\int |\varepsilon_t(u)|^2 W(u)du] < \infty$，应用Markov不等式得证。由Arzelà-Ascoli定理的随机版本（参考van der Vaart \& Wellner, 1996, Theorem 1.5.7），得 $\{Q_T\}$ 的\textbf{渐近紧性}，结合逐点收敛得一致收敛
+        \end{proof}
+    \end{proof}
+\end{proof}
+
+\subsection{断点估计的一致性}
+\begin{theorem}\label{th3.1}
+    在\cref{ass:A1,ass:A2,ass:A3,ass:A4,ass:A5,ass:A6}的条件下，断点估计量$\hat{r}_j$ 满足
+    $$\hat{r}_j \xrightarrow{a.s.} r_j^0, \quad j = 1, \ldots, M_0$$
+\end{theorem}
+
+\begin{proof}
+    由\cref{th3.1}，$$\hat{r} = \arg\min_{r \in \Lambda_\varepsilon} Q_T(r) \xrightarrow{a.s.} \arg\min_{r \in \Lambda_\varepsilon} Q(r) = r^0$$
+    \info{需验证 $Q(r)$ 在 $r^0$ 处有唯一极小值。}
+    \begin{lemma}\label{object-function-recognizable}
+        对任意 $r \neq r^0$，$Q(r) > Q(r^0)$。
+    \end{lemma}
+    \begin{proof}
+        $$Q(r) - Q(r^0) = \sum_{j: \text{misaligned}} (r_j - r_{j-1}) \int_U \text{Var}[\varepsilon^{(\text{mixed})}(u)] W(u)du - \sum_{j} (r_j^0 - r_{j-1}^0) \int_U \text{Var}[\varepsilon^{(j)}(u)] W(u)du$$
+        当当segment包含来自不同regime的数据时，
+        $$\text{Var}[\varepsilon^{(\text{mixed})}(u)] = \text{Var}[\varepsilon^{(j)}(u)] + \lambda(1-\lambda)\|\Delta_j\|^2$$
+        因此 $Q(r) - Q(r^0) \geq C \sum_j |r_j - r_j^0| \|\Delta_j\|^2 > 0$这个可以由\cref{ass:A3}
+    \end{proof}
+    应用\textbf{Argmin连续性定理}完成证明
+    \todo{找这本（Kim \& Pollard, 1990, Theorem 2.7）}
+\end{proof}
+\subsection{断点估计的收敛速度}
+\begin{theorem}\label{rate-T-convergence}
+    对任意 $j = 1, \ldots, M_0$，
+    $$T(\hat{r}_j - r_j^0) = O_P(1)$$
+\end{theorem}
+\begin{proof}
+    \textbf{Step1:目标函数的局部二近似}
+    在 $r_j^0$ 的邻域 $|h| < C/T$ 内，定义
+    $$q_T(h) = Q_T(r_1^0, \ldots, r_{j-1}^0, r_j^0 + h/T, r_{j+1}^0, \ldots, r_M^0)$$
+    \begin{lemma}\label{local-tylor-expansion}
+        $$q_T(h) - q_T(0) = -\frac{2h}{\sqrt{T}} Z_T + \frac{h^2}{T} \Delta_j^2 + R_T(h)$$
+        其中：
+        \begin{itemize}
+            \item $Z_T = \int_U \text{Re}\left[\frac{1}{\sqrt{T}}\sum_{t=T_j^0-[|h|]}^{T_j^0+[|h|]} \varepsilon_t(u) \Delta_j^*(u)\right] W(u)du = O_P(1)$
+            \item $\Delta_j^2 = \int_U |\phi_{j+1}^0(u) - \phi_j^0(u)|^2 W(u)du > 0$（\cref{ass:A3}）
+            \item $R_T(h) = o_P(h^2/T)$ 一致地在 $|h| < C$ 上
+        \end{itemize}
+    \end{lemma}
+    \begin{proof}
+        将断点从 $r_j^0$ 移动到 $r_j^0 + h/T$ 后，SSGR的变化来自两个segment：
+        \textbf{Segment j}
+        从 $(T_{j-1}^0, T_j^0]$ 变为 $(T_{j-1}^0, T_j^0 + [h]]$
+        $$\Delta_j^{(\text{seg})} = \sum_{t=T_j^0+1}^{T_j^0+[h]} \int_U \left|e^{iu\int X_t(s)ds} - \tilde{\phi}_j^{\text{new}}(u)\right|^2 W(u)du$$
+
+        在新的分割下，
+        $$\tilde{\phi}_j^{\text{new}}(u) \approx \phi_j^0(u) + \frac{[h]}{T_j^0 - T_{j-1}^0 + [h]} [\phi_{j+1}^0(u) - \phi_j^0(u)]$$
+
+        对 $t \in (T_j^0, T_j^0 + [h]]$（这些点原本属于regime $j+1$），
+        $$e^{iu\int X_t(s)ds} - \tilde{\phi}_j^{\text{new}}(u) \approx \varepsilon_t^{(j+1)}(u) + \phi_{j+1}^0(u) - \phi_j^0(u) - \frac{[h]}{T_j^0 - T_{j-1}^0} \Delta_j(u)$$
+
+        展开平方并取期望：
+        $$\begin{aligned}
+                E[\Delta_j^{(\text{seg})}] & \approx [h] \int_U \left\{\Omega_{j+1}(u,u) + \left(1 - \frac{[h]}{T_j^0 - T_{j-1}^0}\right)^2 |\Delta_j(u)|^2\right\} W(u)du \\
+                                           & \approx [h] \int_U \Omega_{j+1}(u,u) W(u)du + [h] \int_U |\Delta_j(u)|^2 W(u)du + O\left(\frac{[h]^2}{T}\right)               \\
+                                           & = [h] \cdot \left[\int_U \Omega_{j+1}(u,u) W(u)du + \Delta_j^2\right] + O(h^2/T)
+            \end{aligned}$$
+        类似地，Segment $j+1$ 失去了这 $[h]$ 个点，贡献为
+        $$-[h] \cdot \int_U \Omega_{j+1}(u,u) W(u)du$$
+
+        两者相加得净贡献：
+        $$[h] \cdot \Delta_j^2 + O(h^2/T)$$
+
+        围绕均值的波动部分为
+        $$\sum_{t=T_j^0+1}^{T_j^0+[h]} \varepsilon_t^{(j+1)}(u) \cdot \Delta_j^*(u) = O_P(\sqrt{[h]})$$
+
+        因此
+        $$q_T(h) - q_T(0) = \frac{[h]}{T} \Delta_j^2 + \frac{2}{\sqrt{T}} \sum_{t=T_j^0+1}^{T_j^0+[h]} \text{Re}[\varepsilon_t^{(j+1)}(u) \Delta_j^*(u)] + O(h^2/T)$$
+
+        将 $[h]$ 替换为 $h$ 并定义 $Z_T$ 得证。
+    \end{proof}
+    \textbf{Step2:应用凸性论证}
+    由\cref{local-tylor-expansion}，$q_T(h)$ 在 $h = 0$ 附近可近似为
+    $$q_T(h) \approx q_T(0) + \frac{h^2}{T} \Delta_j^2 + \frac{-2h}{\sqrt{T}} Z_T$$
+
+    最小值点满足
+    $$\hat{h} = \arg\min_h q_T(h) \approx \frac{Z_T}{\Delta_j^2 \sqrt{T}}$$
+
+    因此
+    $$T(\hat{r}_j - r_j^0) = T \cdot \frac{\hat{h}}{T} = \hat{h} \approx \frac{Z_T}{\Delta_j^2} = O_P(1)$$
+    \todo{这里还差一点点}
+    \begin{enumerate}
+        \item $q_T(h)$ 在 $|h| < C$ 上是\textbf{近似凸的}（二阶导数有界）
+        \item $\hat{h}$ 确实在此区域内（紧性论证）
+    \end{enumerate}
+    \begin{lemma}\label{tightness}
+        对任意 $M > 0$，
+        $$P\left(|\hat{h}| > M\right) \leq P\left(q_T(M) < q_T(0)\right) + P\left(q_T(-M) < q_T(0)\right)$$
+    \end{lemma}
+    由\cref{local-tylor-expansion}，当 $M \to \infty $时，右边趋向于$$P\left(\frac{M^2}{T} \Delta_j^2 - \frac{2M}{\sqrt{T}} Z_T < 0\right) \to P(Z_T > \infty) = 0$$
+    因此，$T(\hat{r}_j - r_j^0) = O_P(1)$
+\end{proof}
+
+\section{加权统计量的极限理论}
+\subsection{零假设下的弱收敛}
+\begin{theorem}\label{weighted-supF-limiting-distribution}
+    在\cref{ass:A1,ass:A2,ass:A4}和 $H_0:M_0=0$下，$$\sup_{r \in [\varepsilon, 1-\varepsilon]} \frac{1}{(r(1-r))^\alpha} F_T(r) \xrightarrow{d} \sup_{r \in [\varepsilon, 1-\varepsilon]} \frac{1}{(r(1-r))^\alpha} \int_U |\mathcal{B}^0(r, u)|^2 W(u)du$$
+    其中 $\alpha \in [0, 1)$，$\mathcal{B}^0$ 是Gaussian bridge（定义2.3.1）
+\end{theorem}
+
+\begin{proof}
+    \textbf{Step1:建立CUSUM与SSGR的渐近等价}
+    定义标准化CUSUM过程：
+    $$Z_T(r, u) = \frac{1}{\sqrt{T}} \sum_{t=1}^{[\lfloor Tr \rfloor]} \varepsilon_t(u) - r \cdot \frac{1}{\sqrt{T}} \sum_{t=1}^T \varepsilon_t(u)$$
+    \begin{lemma}
+        $$\sup_{r \in [0,1]} \left|\frac{1}{T} F_T(r) - \int_U |Z_T(r, u)|^2 W(u)du\right| = o_P(1)$$
+    \end{lemma}
+    \begin{proof}
+        在 $H_0$ 下，$\phi_t(u) = \phi^0(u)$ 不依赖于 $t$，因此
+        $$\tilde{\phi}(r, u) = \frac{1}{[\lfloor Tr \rfloor]} \sum_{t=1}^{[\lfloor Tr \rfloor]} e^{iu\int X_t(s)ds} \xrightarrow{P} \phi^0(u)$$
+
+        展开：
+        $$\begin{aligned}
+                F_T(r) & = \frac{[\lfloor Tr \rfloor](T - [\lfloor Tr \rfloor])}{T} \int_U \left|\frac{1}{[\lfloor Tr \rfloor]} \sum_{t=1}^{[\lfloor Tr \rfloor]} e^{iu\int X_t(s)ds} - \frac{1}{T - [\lfloor Tr \rfloor]} \sum_{t=[\lfloor Tr \rfloor]+1}^T e^{iu\int X_t(s)ds}\right|^2 W(u)du \\
+                       & = r(1-r)T \int_U \left|\frac{1}{\sqrt{T}} \sum_{t=1}^{[\lfloor Tr \rfloor]} [\varepsilon_t(u) + \phi^0(u)] - \frac{1}{\sqrt{T}} \sum_{t=[\lfloor Tr \rfloor]+1}^T [\varepsilon_t(u) + \phi^0(u)]\right|^2 W(u)du                                                        \\
+                       & = r(1-r)T \int_U \left|\frac{1}{\sqrt{T}} \left[\sum_{t=1}^{[\lfloor Tr \rfloor]} \varepsilon_t(u) - \frac{[\lfloor Tr \rfloor]}{T} \sum_{t=1}^T \varepsilon_t(u)\right]\right|^2 W(u)du                                                                                \\
+                       & = T \int_U |Z_T(r, u)|^2 W(u)du + o_P(T)
+            \end{aligned}$$
+        （最后一步利用了 $r(1-r) \cdot (r + o(1/T))^2 = r(1-r) + o(1)$）
+        因此
+        $$\frac{1}{T} F_T(r) = \int_U |Z_T(r, u)|^2 W(u)du + o_P(1)$$
+    \end{proof}
+    \textbf{Step2:应用函数型CLT}
+    由定理2.2，在 $H_0:M_0=0$的条件下，在 $C[0,1] \times L^2(U, W)$ 上有$$Z_T(\cdot, \cdot) \Rightarrow \mathcal{B}^0(\cdot, \cdot)$$
+    \textbf{Step3:连续映射定理的加权版本}
+    需证明映射
+    $$\Phi: f \mapsto \sup_{r \in [\varepsilon, 1-\varepsilon]} \frac{1}{(r(1-r))^\alpha} \int_U |f(r, u)|^2 W(u)du$$
+    是从 $C[0,1] \times L^2(U, W)$ 到 $\mathbb{R}$ 的连续泛函（在几乎处处路径意义下）。
+
+    \begin{lemma}
+        对 $\alpha<1$，若 $f \in C[0,1] \times L^2(u,W)$，则 $\Phi(f)<\infty  \text{a.s.}$
+    \end{lemma}
+    \begin{proof}
+        需控制端点行为。利用\textbf{Law of Iterated Logarithm}的泛函版本：
+        \begin{lemma}[（Functional LIL，Csörgő \& Révész, 1981）]
+            对Gaussian bridge $\mathcal{B}^0(r, u)$，
+            $$\limsup_{r \downarrow 0} \frac{|\mathcal{B}^0(r, u)|}{\sqrt{2r\log\log(1/r)}} = \sigma(u) \quad a.s.$$
+        \end{lemma}
+        因此
+        $$\frac{|\mathcal{B}^0(r, u)|}{(r(1-r))^{\alpha/2}} \leq \frac{\sigma(u)\sqrt{2r\log\log(1/r)}}{r^{\alpha/2}} = O\left(r^{(1-\alpha)/2} \sqrt{\log\log(1/r)}\right)$$
+
+        当 $\alpha < 1$ 时，$(1-\alpha)/2 > 0$，因此当 $r \to 0$ 时上式趋于0。
+
+        同理在 $r \to 1$ 处。因此 $\sup_{r \in [\varepsilon, 1-\varepsilon]} \Phi(\mathcal{B}^0) < \infty$ a.s.
+
+        对 $f_n \to f$ 在 $C[0,1] \times L^2$ 上，由一致收敛性，$\Phi(f_n) \to \Phi(f)$
+    \end{proof}
+    应用连续映射定理得
+    $$\sup_{r} \frac{F_T(r)}{T(r(1-r))^\alpha} \xrightarrow{d} \sup_r \frac{1}{(r(1-r))^\alpha} \int_U |\mathcal{B}^0(r, u)|^2 W(u)du$$
+\end{proof}
+
+\subsection{局部备择下的渐近功效}
+\begin{theorem}
+    在局部备择 $H_A(T^{-1/2})$：存在 $r_1^0 \in (\varepsilon, 1-\varepsilon)$ 使得
+    $$\phi_t(u) = \begin{cases}
+            \phi_1^0(u)                     & t \leq T_1^0 = [\lfloor Tr_1^0 \rfloor] \\
+            \phi_1^0(u) + T^{-1/2}\delta(u) & t > T_1^0
+        \end{cases}$$
+    \question{为何这里的备择假设是 $H_A(T^{-\frac{1}{2}})$}
+
+    则
+    $$\sup_r \frac{F_T(r)}{T(r(1-r))^\alpha} \xrightarrow{d} \sup_r \frac{1}{(r(1-r))^\alpha} \int_U \left|\mathcal{B}^0(r, u) + \Psi(r, u)\right|^2 W(u)du$$
+    其中漂移项为
+    $$\Psi(r, u) = \begin{cases}
+            0                    & r < r_1^0    \\
+            (r - r_1^0)\delta(u) & r \geq r_1^0
+        \end{cases}$$
+\end{theorem}
+
+
