@@ -51,6 +51,7 @@ clean:
 	rm -f $(BIN_DIR)/*.pdf
 	rm -f $(BIN_DIR)/results/*.txt
 	rm -f $(BIN_DIR)/results/monte_carlo/*
+	rm -f $(BIN_DIR)/data/*
 	rm -f data/temp*
 	@echo "  √ 清理完成"
 
