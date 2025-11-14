@@ -1,0 +1,564 @@
+# latexindent 可以被调用来处理文件，而不使用文件的扩展名，
+# 例如，简单地
+#       latexindent myfile
+# 在这种情况下，文件扩展名的选择根据 fileExtensionPreference 中的选择来确定
+# 可以添加其他文件扩展名。
+fileExtensionPreference:
+    .tex: 1
+    .sty: 2
+    .cls: 3
+    .bib: 4
+
+# 备份文件的默认文件扩展名（如果 -w 开关激活）
+# 例如，如果你的 .tex 文件名为
+#       myfile.tex
+# 并且你将 backupExtension 指定为 BACKUP.bak，那么你的
+# 备份文件将是
+#       myfileBACKUP.bak
+backupExtension: .bak
+
+# 每个文件只有一个备份：
+#   - 如果 onlyOneBackUp 为 0，那么，作为安全措施，
+#     扩展名上的数字每次递增 1：
+#
+#           myfile.bak0, myfile.bak1, myfile.bak2
+#   - 如果你将 onlyOneBackUp 设置为 1，那么备份文件每次都会被覆盖（不推荐，除非你信任脚本）
+onlyOneBackUp: 0
+
+# 有些用户可能希望有限数量的备份文件，
+# 例如最多 3 个；在这种情况下，他们可以更改 maxNumberOfBackUps。
+#
+# 如果 maxNumberOfBackUps 设置为 0（或更小），则可以有无限多的备份，除非 onlyOneBackUp 被打开
+maxNumberOfBackUps: 3
+
+# 有些用户可能希望循环备份文件。
+#
+# 例如，使用 maxNumberOfBackUps: 4，他们可能
+# 希望删除最旧的备份文件，只保留最新的。
+#
+#    将 myfile.bak1 复制到 myfile.bak0
+#    将 myfile.bak2 复制到 myfile.bak1
+#    将 myfile.bak3 复制到 myfile.bak2
+#    将 myfile.bak4 复制到 myfile.bak3
+#
+# 备份将被写入 myfile.bak4
+cycleThroughBackUps: 0
+
+# 日志文件中显示的信息偏好
+logFilePreferences:
+    showEveryYamlRead: 0
+    showAmalgamatedSettings: 0
+    showDecorationStartCodeBlockTrace: 0
+    showDecorationFinishCodeBlockTrace: 0
+    endLogFileWith: '--------------' 
+    showGitHubInfoFooter: 1
+    PatternLayout:
+        default: "%A%n"
+        trace: "%A%n"
+        ttrace: "%A%n"
+
+# 在此字段中指定的 verbatim 环境将完全不被更改！
+verbatimEnvironments:
+    verbatim: 1
+    lstlisting: 1
+    minted: 1
+
+# verbatim 命令，如 \verb! body !, \lstinline$something else$
+verbatimCommands:
+    verb: 1
+    lstinline: 1
+
+# 无缩进块（不一定是 verbatim 环境），标记为 %\begin{noindent}
+# 或你在此处详细说明的任何其他内容
+noIndentBlock:
+    noindent: 1
+    cmhtest: 1
+
+# 从所有行中移除尾随空白
+removeTrailingWhitespace:
+    beforeProcessing: 0
+    afterProcessing: 1
+
+# 在 filecontents 环境中，\begin{document} 和 \end{document} 被 latexindent 不同对待
+fileContentsEnvironments:
+    filecontents: 1
+    filecontents*: 1
+
+# 缩进 preamble（前言）
+indentPreamble: 0
+
+# 默认情况下，假设 cls、sty 中没有 preamble
+lookForPreamble:
+    .tex: 1
+    .sty: 0
+    .cls: 0
+    .bib: 0
+
+# 有些 preamble 可以包含 \begin 和 \end 语句
+# 这些语句不在它们的“标准环境块”中，例如，
+# 考虑以下 key = values：
+#    preheadhook={\begin{mdframed}[style=myframedstyle]},
+#    postfoothook=\end{mdframed},
+preambleCommandsBeforeEnvironments: 0
+
+# 缩进的默认值
+defaultIndent: "  "
+
+# 应在 & 分隔符处对齐主体的代码块名称
+lookForAlignDelims:
+   tabular: 
+      delims: 1
+      alignDoubleBackSlash: 1
+      spacesBeforeDoubleBackSlash: 1
+      multiColumnGrouping: 0
+      alignRowsWithoutMaxDelims: 1
+      spacesBeforeAmpersand: 1
+      spacesAfterAmpersand: 1
+      justification: "left"
+   tabularx:
+      delims: 1
+   longtable: 1
+   tabu: 1
+   array: 1
+   matrix: 1
+   bmatrix: 1
+   Bmatrix: 1
+   pmatrix: 1
+   vmatrix: 1
+   Vmatrix: 1
+   align: 1
+   align*: 1
+   alignat: 1
+   alignat*: 1
+   aligned: 1
+   cases: 1
+   dcases: 1
+   listabla: 1
+
+# 如果你想让脚本查找 \item 命令
+# 并格式化它，如下所示（例如），
+#       \begin{itemize}
+#           \item content here
+#                 next line is indented
+#                 next line is indented
+#           \item another item
+#       \end{itemize}
+# 然后填充 indentAfterItems。另见 itemNames
+indentAfterItems:
+    itemize: 1
+    enumerate: 1
+    description: 1
+    list: 1
+
+# 如果你想使用其他名称作为你的 item（例如，\part）
+# 然后在此处填充它们；注意，你可以用这个技巧欺骗 latexindent.pl
+# 来缩进各种命令（在 indentAfterItems 中指定的环境中）。
+itemNames:
+    item: 1
+    myitem: 1
+
+# specialBeginEnd 默认是 mathmode 焦点，虽然
+# 没有限制
+specialBeginEnd:
+    displayMath:
+        begin: '\\\['
+        end: '\\\]'
+        lookForThis: 1
+    inlineMath:
+        begin: '(?<!\$)(?<!\\)\$(?!\$)'
+        end: '(?<!\\)\$(?!\$)'
+        lookForThis: 1
+    displayMathTeX:
+        begin: '\$\$'
+        end: '\$\$'
+        lookForThis: 1
+    specialBeforeCommand: 0
+
+# 如果你想在标题后添加缩进，
+# 如 \part, \chapter 等
+# 然后在此处填充它 - 如果你想
+# 使用 defaultIndent 以外的东西，你可以添加一个 indent rule 到 indentRules
+#
+# 你也可以更改级别，如果你喜欢，
+# 或添加自己的标题命令
+indentAfterHeadings:
+    part:
+       indentAfterThisHeading: 0
+       level: 1
+    chapter: 
+       indentAfterThisHeading: 0
+       level: 2
+    section:
+       indentAfterThisHeading: 1
+       level: 3
+    section*:
+       indentAfterThisHeading: 1
+       level: 3
+    subsection:
+       indentAfterThisHeading: 1
+       level: 4
+    subsection*:
+       indentAfterThisHeading: 1
+       level: 4
+    subsubsection:
+       indentAfterThisHeading: 1
+       level: 5
+    paragraph:
+       indentAfterThisHeading: 1
+       level: 6
+    subparagraph:
+       indentAfterThisHeading: 1
+       level: 7
+
+# 最大缩进，默认关闭
+maximumIndentation: -1
+
+# 如果你不想要在代码块中添加额外缩进
+# 然后将其添加到 noAdditionalIndent；注意，
+# 此字段中的代码块将继承
+# *当前* 缩进级别，它们只是不会
+# 获得任何 *额外* 缩进
+noAdditionalIndent:
+    myexample: 1
+    mydefinition: 1
+    problem: 1
+    exercises: 1
+    mysolution: 1
+    foreach: 0
+    widepage: 1
+    comment: 1
+    document: 1
+    frame: 0
+
+# 如果你有特定代码块的缩进规则
+# 然后你可以在这里填充它们；例如，你可能只想
+# 使用一个空格 " " 或者双制表符 "\t\t"
+indentRules:
+   myenvironment: "\t\t"
+   anotherenvironment: "\t\t\t\t"
+   chapter: "  "
+   section: "  "
+   item: "      "
+   myitem: "        "
+
+# 全局设置 noAdditionalIndent 对于代码块
+noAdditionalIndentGlobal:
+    environments: 0
+    commands: 1
+    optionalArguments: 0
+    mandatoryArguments: 0
+    ifElseFi: 0
+    items: 0
+    keyEqualsValuesBracesBrackets: 0
+    namedGroupingBracesBrackets: 0
+    UnNamedGroupingBracesBrackets: 0
+    specialBeginEnd: 0
+    afterHeading: 0
+    filecontents: 0
+
+# 全局设置 indentRules 对于代码块；这些需要
+# 是水平空格，如果要使用
+indentRulesGlobal:
+    environments: 0
+    commands: 0
+    optionalArguments: 0
+    mandatoryArguments: 0
+    ifElseFi: 0
+    items: 0
+    keyEqualsValuesBracesBrackets: 0
+    namedGroupingBracesBrackets: 0
+    UnNamedGroupingBracesBrackets: 0
+    specialBeginEnd: 0
+    afterHeading: 0
+    filecontents: 0
+
+# 命令代码块细节
+commandCodeBlocks:
+    roundParenthesesAllowed: 1
+    stringsAllowedBetweenArguments:
+      - 
+        amalgamate: 1
+      - 'node'
+      - 'at'
+      - 'to'
+      - 'decoration'
+      - '\+\+'
+      - '\-\-'
+    commandNameSpecial:
+      - 
+        amalgamate: 1
+      - '@ifnextchar\['
+
+# modifyLineBreaks 仅在 -m 
+# 开关激活时才会被搜索
+#
+# poly-switch 示例：
+#
+#    BeginStartsOnOwnLine: 
+#       在 begin 语句之前修改行断
+#
+#       当设置为 -1 时，例如 
+#               some text some text 
+#               \begin{myenvironment}
+#           将被更改为
+#               some text some text \begin{myenvironment}
+#       当设置为 0 时，开关被忽略
+#       当设置为 1 时，例如 
+#               some text some text \begin{myenvironment}
+#           将被更改为
+#               some text some text 
+#               \begin{myenvironment}
+#       当设置为 2 时，例如 
+#               some text some text \begin{myenvironment}
+#           将被更改为
+#               some text some text%
+#               \begin{myenvironment}
+#       当设置为 3 时，例如 
+#               some text some text \begin{myenvironment}
+#           将被更改为
+#               some text some text
+#
+#               \begin{myenvironment}
+#
+#    BodyStartsOnOwnLine: 
+#       在主体开始之前修改行断
+#
+#       当设置为 -1 时，例如 
+#               \begin{myenv}
+#                   body text body text
+#           将被更改为
+#               \begin{myenv}body text body text
+#       当设置为 0 时，开关被忽略
+#       当设置为 1 时，例如 
+#               \begin{myenv}body text body text
+#           将被更改为
+#               \begin{myenv}
+#                   body text body text
+#       当设置为 2 时，例如 
+#               \begin{myenv}body text body text
+#           将被更改为
+#               \begin{myenv}%
+#                   body text body text
+#       当设置为 3 时，例如 
+#               \begin{myenv}body text body text
+#           将被更改为
+#               \begin{myenv}
+#
+#                   body text body text
+#
+#    EndStartsOnOwnLine: 
+#       在 end 语句之前修改行断
+#
+#       当设置为 -1 时，例如 
+#               some text some text 
+#               \end{myenvironment}
+#           将被更改为
+#               some text some text \end{myenvironment}
+#       当设置为 0 时，开关被忽略
+#       当设置为 1 时，例如 
+#               some text some text \end{myenvironment}
+#           将被更改为
+#               some text some text 
+#               \end{myenvironment}
+#       当设置为 2 时，例如 
+#               some text some text \end{myenvironment}
+#           将被更改为
+#               some text some text%
+#               \end{myenvironment}
+#       当设置为 3 时，例如 
+#               some text some text \end{myenvironment}
+#           将被更改为
+#               some text some text
+#
+#               \end{myenvironment}
+#
+#    EndFinishesWithLineBreak: 
+#       在 end 语句之后修改行断
+#       
+#       当设置为 -1 时，例如 
+#               \end{myenvironment}
+#               some text some text 
+#           将被更改为
+#                   \end{myenvironment}some text some text 
+#       当设置为 0 时，开关被忽略
+#       当设置为 1 时，例如 
+#               \end{myenvironment}some text some text 
+#           将被更改为
+#                   \end{myenvironment}
+#                   some text some text 
+#       当设置为 2 时，例如 
+#               \end{myenvironment}some text some text 
+#           将被更改为
+#                   \end{myenvironment}%
+#                   some text some text 
+#       当设置为 3 时，例如 
+#               \end{myenvironment}some text some text 
+#           将被更改为
+#                   \end{myenvironment}
+#
+#                   some text some text 
+#
+# 你可以基于每个名称指定设置
+modifyLineBreaks:
+    preserveBlankLines: 1
+    condenseMultipleBlankLinesInto: 1
+    oneSentencePerLine:
+        manipulateSentences: 0     
+        removeSentenceLineBreaks: 1
+        textWrapSentences: 0
+        sentenceIndent: ""
+        sentencesFollow:
+            par: 1
+            blankLine: 1
+            fullStop: 1
+            exclamationMark: 1
+            questionMark: 1
+            rightBrace: 1
+            commentOnPreviousLine: 1
+            other: 0
+        sentencesBeginWith:
+            A-Z: 1
+            a-z: 0
+            other: 0
+        sentencesEndWith:
+            basicFullStop: 0
+            betterFullStop: 1
+            exclamationMark: 1
+            questionMark: 1
+            other: 0
+    textWrapOptions:
+        columns: 0
+        separator: ""
+        perCodeBlockBasis: 0
+        all: 0
+        alignAtAmpersandTakesPriority: 1
+        environments: 
+            quotation: 0
+        ifElseFi: 0
+        optionalArguments: 0
+        mandatoryArguments: 0
+        items: 0
+        specialBeginEnd: 0
+        afterHeading: 0
+        preamble: 0
+        filecontents: 0
+        masterDocument: 0
+    removeParagraphLineBreaks:
+        all: 0
+        beforeTextWrap: 0
+        alignAtAmpersandTakesPriority: 1
+        environments: 
+            quotation: 0
+        ifElseFi: 0
+        optionalArguments: 0
+        mandatoryArguments: 0
+        items: 0
+        specialBeginEnd: 0
+        afterHeading: 0
+        preamble: 0
+        filecontents: 0
+        masterDocument: 0
+        paragraphsStopAt:
+            environments: 1
+            verbatim: 1
+            commands: 0
+            ifElseFi: 0
+            items: 0
+            specialBeginEnd: 0
+            heading: 0
+            filecontents: 0
+            comments: 0
+    environments:
+        BeginStartsOnOwnLine: 1  # 修改为1，使 \begin{cases} 在新行开始，实现等号后换行
+        BodyStartsOnOwnLine: 0   # 修改为1，使主体在新行开始，并添加缩进
+        EndStartsOnOwnLine: 0
+        EndFinishesWithLineBreak: 0
+        equation*:
+            BeginStartsOnOwnLine: 0
+            BodyStartsOnOwnLine: 0
+            EndStartsOnOwnLine: 0
+            EndFinishesWithLineBreak: 0
+    ifElseFi:
+        IfStartsOnOwnLine: 0
+        BodyStartsOnOwnLine: 0
+        OrStartsOnOwnLine: 0
+        OrFinishesWithLineBreak: 0
+        ElseStartsOnOwnLine: 0
+        ElseFinishesWithLineBreak: 0
+        FiStartsOnOwnLine: 0
+        FiFinishesWithLineBreak: 0
+        ifnum:
+            IfStartsOnOwnLine: 0
+            BodyStartsOnOwnLine: 0
+            OrStartsOnOwnLine: 0
+            OrFinishesWithLineBreak: 0
+            ElseStartsOnOwnLine: 0
+            ElseFinishesWithLineBreak: 0
+            FiStartsOnOwnLine: 0
+            FiFinishesWithLineBreak: 0
+    commands:
+        CommandStartsOnOwnLine: 0
+        CommandNameFinishesWithLineBreak: 0
+    optionalArguments:
+        LSqBStartsOnOwnLine: 0
+        OptArgBodyStartsOnOwnLine: 0
+        RSqBStartsOnOwnLine: 0
+        RSqBFinishesWithLineBreak: 0
+    mandatoryArguments:
+        LCuBStartsOnOwnLine: 0
+        MandArgBodyStartsOnOwnLine: 0
+        RCuBStartsOnOwnLine: 0
+        RCuBFinishesWithLineBreak: 0
+    keyEqualsValuesBracesBrackets:
+        KeyStartsOnOwnLine: 0
+        EqualsStartsOnOwnLine: 0
+        EqualsFinishesWithLineBreak: 0
+    items:
+        ItemStartsOnOwnLine: 0
+        ItemFinishesWithLineBreak: 0
+    namedGroupingBracesBrackets:
+        NameStartsOnOwnLine: 0
+        NameFinishesWithLineBreak: 0
+    specialBeginEnd:
+        SpecialBeginStartsOnOwnLine: 0
+        SpecialBodyStartsOnOwnLine: 0
+        SpecialEndStartsOnOwnLine: 0
+        SpecialEndFinishesWithLineBreak: 0
+    verbatim:
+        VerbatimBeginStartsOnOwnLine: 0
+        VerbatimEndFinishesWithLineBreak: 0
+
+# 替换，仅在 -r 或 -rr 开关激活时有效
+replacements:
+  - 
+    amalgamate: 1
+  -
+    this: 'latexindent.pl'
+    that: 'pl.latexindent'
+    lookForThis: 1
+    when: before
+
+# fineTuning 允许你调整 latexindent.pl 的内部模式匹配
+# 这是其核心
+fineTuning:
+    environments:
+      name: '[a-zA-Z@\*0-9_\\]+' 
+    ifElseFi:
+      name: '@?if[a-zA-Z@]*?' 
+    commands:
+      name: '[+a-zA-Z@\*0-9_\:]+?'
+    keyEqualsValuesBracesBrackets:
+      name: '[a-zA-Z@\*0-9_\/.\h\{\}:\#-]+?'
+      follow: '(?:(?<!\\)\{)|,|(?:(?<!\\)\[)'
+    NamedGroupingBracesBrackets:
+      name: '[0-9\.a-zA-Z@\*><]+?'
+      follow: '\h|\R|\{|\[|\$|\)|\('
+    UnNamedGroupingBracesBrackets: 
+      follow: '\{|\[|,|&|\)|\(|\$'
+    arguments:
+      before: '(?:#\d\h*;?,?\/?)+|\<.*?\>'
+      between: '_|\^|\*'
+    modifyLineBreaks:
+      betterFullStop: '(?:\.\)(?!\h*[a-z]))|(?:(?<!(?:(?:e\.g)|(?:i\.e)|(?:etc))))\.(?!(?:[a-z]|[A-Z]|\-|~|\,|[0-9]))'
+      doubleBackSlash: '\\\\(?:\h*\[\h*\d+\h*[a-zA-Z]+\h*\])?'
+      comma: ','

@@ -2,8 +2,11 @@
 \usepackage{amsmath,amsfonts,amssymb,amsthm}
 \usepackage{mathtools}
 \usepackage[colorinlistoftodos]{todonotes}
-\usepackage{fontspec} % LuaLaTeX 字体支持
-
+% \usepackage{fontspec} % LuaLaTeX 字体支持
+\usepackage{ctex}
+\usepackage{algorithm}
+\usepackage{algorithmicx}
+\usepackage{algpseudocode}
 % ==================== 页面设置 ====================
 \usepackage[margin=2cm]{geometry}
 \usepackage{setspace}
@@ -12,12 +15,12 @@
 % ==================== 字体设置 ====================
 % 英文字体
 \setmainfont{Times New Roman}
-% 中文字体 - Noto Serif SC（思源宋体，LuaLaTeX 支持可变字体）
-\newfontfamily\CJKmainfont{Noto Serif SC}
-\newfontfamily\CJKsansfont{Noto Sans SC}
-\newfontfamily\CJKmonofont{Noto Sans SC}
-% 设置默认 CJK 字体
-\setmainfont{Noto Serif SC}[Script=CJK]
+% % 中文字体 - Noto Serif SC（思源宋体，LuaLaTeX 支持可变字体）
+% \newfontfamily\CJKmainfont{Noto Serif SC}
+% \newfontfamily\CJKsansfont{Noto Sans SC}
+% \newfontfamily\CJKmonofont{Noto Sans SC}
+% % 设置默认 CJK 字体
+% \setmainfont{Noto Serif SC}[Script=CJK]
 
 % ==================== 图表支持 ====================
 \usepackage{graphicx}
@@ -56,14 +59,14 @@
 
 % ==================== 定理环境（中文化） ====================
 \newtheorem{theorem}{定理}[section]
-\newtheorem{lemma}[theorem]{引理}
+\newtheorem{lemma}{引理}[subsection]
 \newtheorem{proposition}[theorem]{命题}
 \newtheorem{corollary}[theorem]{推论}
 \theoremstyle{definition}
 \newtheorem{definition}[theorem]{定义}
 \newtheorem{assumption}[theorem]{假设}
 \theoremstyle{remark}
-\newtheorem{remark}[theorem]{注记}
+\newtheorem{remark}{注记}
 \newtheorem{example}[theorem]{示例}
 
 % 证明标题本地化
