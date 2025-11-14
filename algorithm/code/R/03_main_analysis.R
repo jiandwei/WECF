@@ -15,7 +15,8 @@ source("R/02_visualization.R")
 run_breakpoint_detection <- function(
     data,
     method = "binary_seg",
-    params = list()
+    params = list(),
+    prefix = "temp"
 ) {
     # 默认参数
     default_params <- list(
@@ -27,22 +28,24 @@ run_breakpoint_detection <- function(
     params <- modifyList(default_params, params)
 
     # 保存数据
-    files <- save_for_c(data, output_dir = "data", prefix = "temp")
+    files <- save_for_c(data, output_dir = "data", prefix = prefix)
 
     # 构建命令
     if (method == "binary_seg") {
         cmd <- sprintf(
-            "./break_detect %s %s results/breakpoints.txt %d %d",
+            "./break_detect %s %s results/%s_breakpoints.txt %d %d",
             files$data_file,
             files$meta_file,
+            prefix,
             params$max_breaks,
             params$min_segment_length
         )
     } else if (method == "bootstrap") {
         cmd <- sprintf(
-            "./bootstrap %s %s results/bootstrap.txt %d %d",
+            "./bootstrap %s %s results/%s_breakpoints.txt %d %d",
             files$data_file,
             files$meta_file,
+            prefix,
             params$B,
             params$block_length
         )
@@ -58,9 +61,15 @@ run_breakpoint_detection <- function(
 
     # 读取结果
     if (method == "binary_seg") {
-        result <- read_breakpoint_results("results/breakpoints.txt")
+        result <- read_breakpoint_results(sprintf(
+            "results/%s_breakpoints.txt",
+            prefix
+        ))
     } else if (method == "bootstrap") {
-        result <- read_bootstrap_results("results/bootstrap.txt")
+        result <- read_bootstrap_results(sprintf(
+            "results/%s_breakpoints.txt.bootstrap",
+            prefix
+        ))
     }
 
     return(result)
@@ -76,14 +85,16 @@ read_breakpoint_results <- function(filename) {
     n_breaks <- as.integer(sub("n_breaks=", "", n_breaks_line))
 
     # 读取断点详情
-    breaks_start <- which(lines == "position,test_stat,p_value") + 1
+    header_line <- which(lines == "position,test_stat,p_value")
+    breaks_start <- header_line + 1
 
-    if (n_breaks > 0) {
+    if (n_breaks > 0 && length(header_line) > 0) {
         breaks_df <- read.csv(
             text = paste(
-                lines[breaks_start:(breaks_start + n_breaks - 1)],
+                lines[header_line:(breaks_start + n_breaks - 1)],
                 collapse = "\n"
-            )
+            ),
+            header = TRUE
         )
     } else {
         breaks_df <- data.frame(
@@ -102,25 +113,17 @@ read_breakpoint_results <- function(filename) {
 
 #' 读取Bootstrap结果
 read_bootstrap_results <- function(filename) {
-    lines <- readLines(filename)
+    # Bootstrap结果现在是断点+p值的格式，与breakpoint_results相同
+    result <- read_breakpoint_results(filename)
 
-    # 读取临界值
-    cv_start <- which(lines == "alpha,critical_value") + 1
-    cv_end <- which(lines == "")[1] - 1
-
-    cv_df <- read.csv(text = paste(lines[cv_start:cv_end], collapse = "\n"))
-
-    # 读取Bootstrap分布
-    dist_start <- which(lines == "iteration,statistic") + 1
-    dist_df <- read.csv(
-        text = paste(lines[dist_start:length(lines)], collapse = "\n")
+    # 添加一个critical_value字段以保持兼容性
+    result$critical_value_005 <- ifelse(
+        nrow(result$breaks) > 0,
+        min(result$breaks$test_stat[result$breaks$p_value <= 0.05]),
+        NA
     )
 
-    return(list(
-        critical_values = cv_df,
-        distribution = dist_df$statistic,
-        critical_value_005 = cv_df$critical_value[cv_df$alpha == 0.05]
-    ))
+    return(result)
 }
 
 
@@ -183,9 +186,12 @@ complete_analysis <- function(
         )
 
         cat(sprintf(
-            "  √ Bootstrap完成，临界值(α=0.05) = %.4f\n",
-            boot_result$critical_value_005
+            "  √ Bootstrap完成，检测到 %d 个显著断点 (p < 0.05)\n",
+            sum(boot_result$breaks$p_value < 0.05, na.rm = TRUE)
         ))
+        if (nrow(boot_result$breaks) > 0) {
+            print(boot_result$breaks)
+        }
     } else {
         cat("\n[3/4] 跳过Bootstrap\n")
     }

@@ -63,11 +63,25 @@ generate_functional_data <- function(
 
     # ========== 默认均值函数 ==========
     if (is.null(mean_functions)) {
-        mean_functions <- list(
+        # 提供足够的默认函数
+        default_functions <- list(
             function(s) sin(2 * pi * s), # Regime 1
             function(s) cos(2 * pi * s), # Regime 2
-            function(s) 2 * s * (1 - s) # Regime 3
-        )[1:n_regimes]
+            function(s) 2 * s * (1 - s), # Regime 3
+            function(s) sin(4 * pi * s), # Regime 4
+            function(s) exp(-10 * (s - 0.5)^2), # Regime 5
+            function(s) s^2 - s^3 # Regime 6
+        )
+
+        if (n_regimes > length(default_functions)) {
+            stop(sprintf(
+                "需要 %d 个regime，但只定义了 %d 个默认函数。请提供自定义mean_functions。",
+                n_regimes,
+                length(default_functions)
+            ))
+        }
+
+        mean_functions <- default_functions[1:n_regimes]
     }
 
     # ========== 默认协方差函数 ==========

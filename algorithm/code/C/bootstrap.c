@@ -119,7 +119,7 @@ BootstrapResult *compute_p_values(FunctionalData *fd, const char *breakpoint_fil
                                   int n_bootstrap, int block_length)
 {
 
-    BootstrapResult *result = (BootstrapResult *)malloc(sizeof(BootstrapResult));
+    BootstrapResult *result = (BootstrapResult *)calloc(1, sizeof(BootstrapResult));
 
     // 读取断点位置
     FILE *fp = fopen(breakpoint_file, "r");
@@ -169,15 +169,31 @@ BootstrapResult *compute_p_values(FunctionalData *fd, const char *breakpoint_fil
 
         printf("  断点 %d/%d (position = %d)...\n", b + 1, result->n_breaks, position);
 
+        // Verify the position is valid
+        if (position <= 10 || position >= fd->T - 10)
+        {
+            printf("    [ERROR] 无效位置: %d (T=%d)\n", position, fd->T);
+            result->p_values[b] = 1.0;
+            continue;
+        }
+
         int count_exceed = 0;
 
-// Bootstrap循环
-#pragma omp parallel for reduction(+ : count_exceed)
+        // Bootstrap循环
+        // #pragma omp parallel for reduction(+ : count_exceed)
         for (int boot = 0; boot < n_bootstrap; boot++)
         {
+            printf("\r    Bootstrap迭代 %d/%d...", boot + 1, n_bootstrap);
+            fflush(stdout);
 
             // 生成bootstrap样本
             FunctionalData *boot_sample = moving_block_bootstrap(fd, block_length);
+
+            if (boot_sample == NULL)
+            {
+                printf("\n    [ERROR] 无法生成bootstrap样本\n");
+                continue;
+            }
 
             // 计算bootstrap检验统计量
             double boot_stat = compute_test_statistic_at_position(boot_sample, position);
@@ -188,18 +204,9 @@ BootstrapResult *compute_p_values(FunctionalData *fd, const char *breakpoint_fil
                 count_exceed++;
             }
 
-            // 清理
+            // 清理 (不要释放共享的s_grid)
+            boot_sample->s_grid = NULL; // 避免double-free
             free_data(boot_sample);
-
-            // 进度报告
-            if ((boot + 1) % 100 == 0)
-            {
-#pragma omp critical
-                {
-                    printf("\r    进度: %d/%d", boot + 1, n_bootstrap);
-                    fflush(stdout);
-                }
-            }
         }
 
         result->p_values[b] = (double)count_exceed / n_bootstrap;

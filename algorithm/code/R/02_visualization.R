@@ -212,39 +212,41 @@ plot_breakpoint_results <- function(
 
     plots[[2]] <- p2
 
-    # ===== 图3：Bootstrap分布（如果提供） =====
+    # ===== 图3：Bootstrap p值（如果提供） =====
 
-    if (!is.null(bootstrap_result)) {
-        boot_df <- data.frame(
-            statistic = bootstrap_result$distribution
-        )
+    if (
+        !is.null(bootstrap_result) &&
+            !is.null(bootstrap_result$breaks) &&
+            nrow(bootstrap_result$breaks) > 0
+    ) {
+        # 创建一个p值的条形图
+        pval_df <- bootstrap_result$breaks
+        pval_df$significant <- pval_df$p_value < 0.05
 
-        p3 <- ggplot(boot_df, aes(x = statistic)) +
-            geom_histogram(
-                bins = 50,
-                fill = "lightblue",
-                color = "black",
-                alpha = 0.7
-            ) +
-            geom_vline(
-                xintercept = bootstrap_result$critical_value_005,
+        p3 <- ggplot(
+            pval_df,
+            aes(x = position, y = p_value, fill = significant)
+        ) +
+            geom_col(color = "black", alpha = 0.7) +
+            geom_hline(
+                yintercept = 0.05,
                 color = "red",
                 linetype = "dashed",
                 linewidth = 1
             ) +
+            scale_fill_manual(values = c("TRUE" = "green", "FALSE" = "gray")) +
             annotate(
                 "text",
-                x = bootstrap_result$critical_value_005,
-                y = Inf,
-                vjust = 1.5,
-                label = sprintf(
-                    "CV (α=0.05) = %.2f",
-                    bootstrap_result$critical_value_005
-                ),
+                x = Inf,
+                y = 0.05,
+                vjust = -0.5,
+                hjust = 1,
+                label = "α = 0.05",
                 color = "red"
             ) +
-            labs(title = "Bootstrap分布", x = "检验统计量", y = "频数") +
-            theme_minimal(base_size = 12)
+            labs(title = "Bootstrap p值", x = "断点位置", y = "p值") +
+            theme_minimal(base_size = 12) +
+            theme(legend.position = "bottom")
 
         plots[[3]] <- p3
     }

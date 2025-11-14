@@ -48,6 +48,9 @@ clean:
 	@echo "清理编译文件..."
 	rm -f $(BIN_DIR)/*.exe
 	rm -f $(SRC_DIR)/*.o
+	rm -f $(BIN_DIR)/*.pdf
+	rm -f $(BIN_DIR)/results/*.txt
+	rm -f $(BIN_DIR)/results/monte_carlo/*
 	rm -f data/temp*
 	@echo "  √ 清理完成"
 

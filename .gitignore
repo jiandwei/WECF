@@ -330,3 +330,5 @@ main.pdf
 *.png
 *.pdf
 *.o
+*.txt
+*.bin

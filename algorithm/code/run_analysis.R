@@ -18,8 +18,8 @@ source("R/03_main_analysis.R")
 
 # 运行完整分析
 results <- complete_analysis(
-    T = 500,
-    breakpoints = c(0.3, 0.7),
+    T = 5000,
+    breakpoints = c(0.15, 0.90),
     run_bootstrap = TRUE,
     visualize = TRUE
 )
