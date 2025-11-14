@@ -41,8 +41,7 @@ FunctionalData *load_data(const char *data_file, const char *meta_file);
 void free_data(FunctionalData *fd);
 ComplexArray *compute_characteristic_function(FunctionalData *fd, double *u_grid, int n_u);
 void free_complex_array(ComplexArray *ca);
-double compute_ssgr_segment(FunctionalData *fd, int t_start, int t_end,
-                            double *u_grid, int n_u);
+double compute_ssgr_segment(FunctionalData *fd, int t_start, int t_end, double *u_grid, int n_u);
 void save_results(const char *output_file, double *ssgr, int n_breakpoints);
 
 /* ========== 主函数 ========== */

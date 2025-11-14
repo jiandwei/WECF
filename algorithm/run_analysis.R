@@ -3,7 +3,7 @@
 # ============================================================================
 
 # 设置工作目录
-setwd("WECF\\algorithm\\code")
+setwd("algorithm\\code")
 
 # 编译C程序（如果未编译）
 if (!file.exists("break_detect.exe")) {
