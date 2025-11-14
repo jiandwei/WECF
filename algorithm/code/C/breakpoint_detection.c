@@ -1,9 +1,9 @@
 /*
  * ============================================================================
  * 文件名: breakpoint_detection.c
- * 功能: 实现二元分割算法进行断点检测
- * 理论基础: Binary Segmentation with BIC criterion
- * 编译: gcc -O3 -fopenmp -o break_detect breakpoint_detection.c -lm
+ * 功能: Binary Segmentation for Functional Data Breakpoint Detection
+ * 理论基础: Segmented Sum of Generalized Residuals (SSGR)
+ * 编译: gcc -O3 -fopenmp -o break_detect breakpoint_detection.c utils.o -lm
  * 使用: ./break_detect <data_file> <meta_file> <output_file> <max_breaks> <min_segment_length>
  * ============================================================================
  */
@@ -12,53 +12,34 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <float.h>
+#include <time.h>
 #include <omp.h>
+#include "utils.h" // 使用共享的工具函数
 
 #define MAX_LINE 1024
-#define PI 3.14159265358979323846
 
-/* ========== 数据结构 (与characteristic_function.c相同) ========== */
-
-typedef struct
-{
-    double **data;
-    int T;
-    int n_grid;
-    double s_min;
-    double s_max;
-    double *s_grid;
-} FunctionalData;
+/* ========== 断点检测特有的数据结构 ========== */
 
 typedef struct
 {
-    int position;     // 断点位置
-    double test_stat; // 检验统计量
-    double p_value;   // p值（bootstrap估计）
+    int position;
+    double test_stat;
+    double p_value;
 } Breakpoint;
 
 typedef struct
 {
-    Breakpoint *breaks;
     int n_breaks;
-    double *segment_means; // 每个segment的均值函数
+    Breakpoint *breaks;
 } BreakpointResult;
 
-/* ========== 函数声明 ========== */
+/* ========== 断点检测函数声明 ========== */
 
-FunctionalData *load_data(const char *data_file, const char *meta_file);
-void free_data(FunctionalData *fd);
-
-double compute_ssgr(FunctionalData *fd, int start, int end, double **segment_mean);
-double **compute_segment_mean(FunctionalData *fd, int start, int end);
-void free_segment_mean(double **mean, int n_grid);
-
-BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int min_seg_len);
-int find_best_split(FunctionalData *fd, int start, int end, int min_seg_len, double *stat);
-
-double compute_bic(double ssgr, int n_obs, int n_params);
-void save_breakpoints(const char *output_file, BreakpointResult *result);
-void free_breakpoint_result(BreakpointResult *result);
+double compute_test_statistic(FunctionalData *fd, int start, int end, int *best_position);
+double compute_bic(FunctionalData *fd, int *breakpoints, int n_breaks);
+BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int min_segment_length);
+void save_results(const char *output_file, BreakpointResult *result);
+void free_result(BreakpointResult *result);
 
 /* ========== 主函数 ========== */
 
@@ -68,6 +49,8 @@ int main(int argc, char *argv[])
     if (argc != 6)
     {
         fprintf(stderr, "用法: %s <data_file> <meta_file> <output_file> <max_breaks> <min_segment_length>\n", argv[0]);
+        fprintf(stderr, "  max_breaks: 最大断点数量\n");
+        fprintf(stderr, "  min_segment_length: 最小segment长度（推荐 >= 30）\n");
         return 1;
     }
 
@@ -75,17 +58,17 @@ int main(int argc, char *argv[])
     const char *meta_file = argv[2];
     const char *output_file = argv[3];
     int max_breaks = atoi(argv[4]);
-    int min_seg_len = atoi(argv[5]);
+    int min_segment_length = atoi(argv[5]);
 
     printf("================================================\n");
-    printf("断点检测模块 (Binary Segmentation + BIC)\n");
+    printf("Binary Segmentation for Breakpoint Detection\n");
     printf("================================================\n");
     printf("最大断点数: %d\n", max_breaks);
-    printf("最小segment长度: %d\n", min_seg_len);
+    printf("最小segment长度: %d\n", min_segment_length);
     printf("OpenMP线程数: %d\n", omp_get_max_threads());
 
     // 加载数据
-    printf("\n[1/2] 加载数据...\n");
+    printf("\n[1/3] 加载数据...\n");
     FunctionalData *fd = load_data(data_file, meta_file);
     if (fd == NULL)
     {
@@ -94,20 +77,21 @@ int main(int argc, char *argv[])
     printf("  √ T = %d, n_grid = %d\n", fd->T, fd->n_grid);
 
     // 执行断点检测
-    printf("\n[2/2] 执行二元分割算法...\n");
+    printf("\n[2/3] 执行Binary Segmentation...\n");
     double start_time = omp_get_wtime();
 
-    BreakpointResult *result = binary_segmentation(fd, max_breaks, min_seg_len);
+    BreakpointResult *result = binary_segmentation(fd, max_breaks, min_segment_length);
 
     double end_time = omp_get_wtime();
     printf("  √ 检测完成! 用时: %.2f 秒\n", end_time - start_time);
-    printf("  √ 检测到 %d 个断点\n", result->n_breaks);
+    printf("  检测到 %d 个断点\n", result->n_breaks);
 
     // 保存结果
-    save_breakpoints(output_file, result);
+    printf("\n[3/3] 保存结果...\n");
+    save_results(output_file, result);
 
     // 清理
-    free_breakpoint_result(result);
+    free_result(result);
     free_data(fd);
 
     printf("\n================================================\n");
@@ -117,28 +101,27 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-/* ========== 核心算法实现 ========== */
+/* ========== Binary Segmentation实现 ========== */
 
 /**
- * 二元分割算法主流程
+ * Binary Segmentation主算法
  *
  * 算法步骤:
- * 1. 初始化活跃segment集合 S = {[1, T]}
- * 2. 对每个segment in S:
- *    a) 寻找最优分割点 τ* = argmin_{τ} SSGR(segment)
- *    b) 计算BIC(1 break) vs BIC(0 break)
- *    c) 如果BIC改进且统计量显著，则分割
- * 3. 重复直到无法继续分割或达到max_breaks
+ * 1. 初始化: 整个样本作为一个segment
+ * 2. 循环:
+ *    a) 对每个segment计算最优分割位置
+ *    b) 选择检验统计量最大的segment进行分割
+ *    c) 使用BIC准则决定是否接受新断点
+ *    d) 直到达到最大断点数或无法找到显著断点
  */
-BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int min_seg_len)
+BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int min_segment_length)
 {
 
-    // 初始化结果结构
     BreakpointResult *result = (BreakpointResult *)malloc(sizeof(BreakpointResult));
     result->breaks = (Breakpoint *)malloc(max_breaks * sizeof(Breakpoint));
     result->n_breaks = 0;
 
-    // 活跃segment队列 (用简单数组实现)
+    // 维护当前的segments
     int *seg_starts = (int *)malloc((max_breaks + 1) * sizeof(int));
     int *seg_ends = (int *)malloc((max_breaks + 1) * sizeof(int));
     int n_segments = 1;
@@ -146,104 +129,85 @@ BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int mi
     seg_starts[0] = 0;
     seg_ends[0] = fd->T - 1;
 
-    // 当前BIC
-    double **current_mean = compute_segment_mean(fd, 0, fd->T - 1);
-    double current_ssgr = compute_ssgr(fd, 0, fd->T - 1, current_mean);
-    double current_bic = compute_bic(current_ssgr, fd->T, fd->n_grid);
+    // 维护已找到的断点（用于BIC计算）
+    int *current_breaks = (int *)malloc(max_breaks * sizeof(int));
 
-    free_segment_mean(current_mean, fd->n_grid);
-
-    printf("  初始BIC = %.4f\n", current_bic);
-
-    // 迭代分割
+    // Binary Segmentation循环
     for (int iter = 0; iter < max_breaks; iter++)
     {
 
-        printf("\n  --- 迭代 %d ---\n", iter + 1);
+        printf("  迭代 %d/%d...\n", iter + 1, max_breaks);
 
-        // 寻找所有segment中最优的分割点
+        double max_stat = 0.0;
         int best_seg_idx = -1;
-        int best_split_pos = -1;
-        double best_improvement = 0.0;
-        double best_test_stat = 0.0;
+        int best_position = -1;
 
+// 对每个segment寻找最优分割点
+#pragma omp parallel for
         for (int seg = 0; seg < n_segments; seg++)
         {
+
             int start = seg_starts[seg];
             int end = seg_ends[seg];
-            int seg_length = end - start + 1;
 
-            if (seg_length < 2 * min_seg_len)
+            // 检查segment长度是否足够分割
+            if (end - start + 1 < 2 * min_segment_length)
             {
-                continue; // segment太短，无法分割
+                continue;
             }
 
-            // 寻找该segment的最优分割点
-            double test_stat;
-            int split_pos = find_best_split(fd, start, end, min_seg_len, &test_stat);
+            // 计算该segment的最优分割点和检验统计量
+            int position;
+            double stat = compute_test_statistic(fd, start, end, &position);
 
-            if (split_pos < 0)
+// 更新全局最优
+#pragma omp critical
             {
-                continue; // 未找到有效分割点
-            }
-
-            // 计算分割后的BIC改进
-            double **mean_left = compute_segment_mean(fd, start, split_pos);
-            double **mean_right = compute_segment_mean(fd, split_pos + 1, end);
-
-            double ssgr_left = compute_ssgr(fd, start, split_pos, mean_left);
-            double ssgr_right = compute_ssgr(fd, split_pos + 1, end, mean_right);
-
-            double new_ssgr = ssgr_left + ssgr_right;
-            double new_bic = compute_bic(new_ssgr, fd->T, (result->n_breaks + 2) * fd->n_grid);
-
-            double improvement = current_bic - new_bic;
-
-            free_segment_mean(mean_left, fd->n_grid);
-            free_segment_mean(mean_right, fd->n_grid);
-
-            if (improvement > best_improvement)
-            {
-                best_improvement = improvement;
-                best_seg_idx = seg;
-                best_split_pos = split_pos;
-                best_test_stat = test_stat;
+                if (stat > max_stat)
+                {
+                    max_stat = stat;
+                    best_seg_idx = seg;
+                    best_position = position;
+                }
             }
         }
 
-        // 判断是否继续分割
-        if (best_seg_idx < 0 || best_improvement <= 0)
+        // 如果没有找到有效分割，停止
+        if (best_seg_idx == -1)
         {
-            printf("  √ 无进一步改进，算法终止\n");
+            printf("    未找到有效分割点，停止\n");
             break;
         }
 
-        // 执行分割
-        printf("  √ 在segment [%d, %d] 的位置 %d 处分割\n",
-               seg_starts[best_seg_idx], seg_ends[best_seg_idx], best_split_pos);
-        printf("     BIC改进: %.4f, 检验统计量: %.4f\n", best_improvement, best_test_stat);
+        // 临时添加新断点，计算BIC
+        current_breaks[result->n_breaks] = best_position;
+        double bic = compute_bic(fd, current_breaks, result->n_breaks + 1);
 
-        // 记录断点
-        result->breaks[result->n_breaks].position = best_split_pos;
-        result->breaks[result->n_breaks].test_stat = best_test_stat;
-        result->breaks[result->n_breaks].p_value = -1.0; // 需要bootstrap估计
+        // BIC准则：是否接受新断点
+        double bic_old = (result->n_breaks > 0) ? compute_bic(fd, current_breaks, result->n_breaks) : compute_bic(fd, NULL, 0);
+
+        if (bic > bic_old)
+        {
+            printf("    BIC增加，拒绝断点 (BIC: %.2f -> %.2f)\n", bic_old, bic);
+            break;
+        }
+
+        // 接受新断点
+        result->breaks[result->n_breaks].position = best_position;
+        result->breaks[result->n_breaks].test_stat = max_stat;
+        result->breaks[result->n_breaks].p_value = -1.0; // 待Bootstrap计算
         result->n_breaks++;
 
-        // 更新segment列表
-        int old_start = seg_starts[best_seg_idx];
-        int old_end = seg_ends[best_seg_idx];
+        printf("    √ 接受断点: position = %d, stat = %.4f\n", best_position, max_stat);
 
-        seg_ends[best_seg_idx] = best_split_pos;
-        seg_starts[n_segments] = best_split_pos + 1;
-        seg_ends[n_segments] = old_end;
+        // 更新segments
+        int new_end = seg_ends[best_seg_idx];
+        seg_ends[best_seg_idx] = best_position - 1;
+
+        seg_starts[n_segments] = best_position;
+        seg_ends[n_segments] = new_end;
         n_segments++;
-
-        current_bic -= best_improvement;
     }
-
-    // 清理
-    free(seg_starts);
-    free(seg_ends);
 
     // 对断点排序
     for (int i = 0; i < result->n_breaks - 1; i++)
@@ -259,151 +223,127 @@ BreakpointResult *binary_segmentation(FunctionalData *fd, int max_breaks, int mi
         }
     }
 
+    // 清理
+    free(seg_starts);
+    free(seg_ends);
+    free(current_breaks);
+
     return result;
 }
 
 /**
- * 在给定segment中寻找最优分割点
- * 返回: 分割位置 (若无有效分割则返回-1)
+ * 计算给定segment的最优分割位置和检验统计量
  */
-int find_best_split(FunctionalData *fd, int start, int end, int min_seg_len, double *stat)
+double compute_test_statistic(FunctionalData *fd, int start, int end, int *best_position)
 {
 
-    int seg_length = end - start + 1;
-    if (seg_length < 2 * min_seg_len)
-    {
-        return -1;
-    }
+    double epsilon = 0.1;
+    int min_length = (int)(epsilon * (end - start + 1));
+    if (min_length < 10)
+        min_length = 10;
 
-    int best_pos = -1;
-    double min_ssgr = DBL_MAX;
+    double max_stat = 0.0;
+    *best_position = -1;
 
 // 并行搜索所有候选分割点
-#pragma omp parallel
+#pragma omp parallel for reduction(max : max_stat)
+    for (int tau = start + min_length; tau <= end - min_length; tau++)
     {
-        double local_min_ssgr = DBL_MAX;
-        int local_best_pos = -1;
 
-#pragma omp for
-        for (int tau = start + min_seg_len; tau <= end - min_seg_len; tau++)
-        {
+        // 计算分割后的SSGR
+        double **mean_left = compute_segment_mean(fd, start, tau - 1);
+        double **mean_right = compute_segment_mean(fd, tau, end);
 
-            // 计算左右两个segment的SSGR
-            double **mean_left = compute_segment_mean(fd, start, tau);
-            double **mean_right = compute_segment_mean(fd, tau + 1, end);
+        double ssgr_left = compute_ssgr(fd, start, tau - 1, mean_left);
+        double ssgr_right = compute_ssgr(fd, tau, end, mean_right);
 
-            double ssgr_left = compute_ssgr(fd, start, tau, mean_left);
-            double ssgr_right = compute_ssgr(fd, tau + 1, end, mean_right);
-            double total_ssgr = ssgr_left + ssgr_right;
-
-            free_segment_mean(mean_left, fd->n_grid);
-            free_segment_mean(mean_right, fd->n_grid);
-
-            if (total_ssgr < local_min_ssgr)
-            {
-                local_min_ssgr = total_ssgr;
-                local_best_pos = tau;
-            }
-        }
-
-// 归约
-#pragma omp critical
-        {
-            if (local_min_ssgr < min_ssgr)
-            {
-                min_ssgr = local_min_ssgr;
-                best_pos = local_best_pos;
-            }
-        }
-    }
-
-    // 计算检验统计量 (简化版: CUSUM-type)
-    if (best_pos > 0)
-    {
+        // 计算无分割的SSGR
         double **mean_full = compute_segment_mean(fd, start, end);
         double ssgr_full = compute_ssgr(fd, start, end, mean_full);
-        *stat = (ssgr_full - min_ssgr) / seg_length; // 标准化
+
+        // 检验统计量
+        double stat = ssgr_full - (ssgr_left + ssgr_right);
+
+#pragma omp critical
+        {
+            if (stat > max_stat)
+            {
+                max_stat = stat;
+                *best_position = tau;
+            }
+        }
+
+        // 清理
+        free_segment_mean(mean_left, fd->n_grid);
+        free_segment_mean(mean_right, fd->n_grid);
         free_segment_mean(mean_full, fd->n_grid);
     }
 
-    return best_pos;
+    return max_stat;
 }
 
 /**
- * 计算segment的SSGR (Segmented Sum of Generalized Residuals)
- * SSGR = Σ_t ∫ |X_t(s) - mean(s)|^2 W(s)ds
+ * 计算BIC准则
+ * BIC = log(SSR) + k * log(T) / T
+ * 其中 k = n_breaks + 1 (segment数量)
  */
-double compute_ssgr(FunctionalData *fd, int start, int end, double **segment_mean)
+double compute_bic(FunctionalData *fd, int *breakpoints, int n_breaks)
 {
 
-    double ssgr = 0.0;
-    double ds = (fd->s_max - fd->s_min) / (fd->n_grid - 1.0);
+    // 创建segment边界
+    int n_segments = n_breaks + 1;
+    int *starts = (int *)malloc(n_segments * sizeof(int));
+    int *ends = (int *)malloc(n_segments * sizeof(int));
 
-#pragma omp parallel for reduction(+ : ssgr)
-    for (int t = start; t <= end; t++)
+    if (n_breaks == 0)
     {
-        for (int i = 0; i < fd->n_grid; i++)
+        starts[0] = 0;
+        ends[0] = fd->T - 1;
+    }
+    else
+    {
+        // 第一个segment
+        starts[0] = 0;
+        ends[0] = breakpoints[0] - 1;
+
+        // 中间segments
+        for (int i = 1; i < n_breaks; i++)
         {
-            double residual = fd->data[t][i] - segment_mean[i][0]; // mean is n_grid x 1
-            ssgr += residual * residual * ds;                      // 简化权重W(s)=1
+            starts[i] = breakpoints[i - 1];
+            ends[i] = breakpoints[i] - 1;
         }
+
+        // 最后一个segment
+        starts[n_breaks] = breakpoints[n_breaks - 1];
+        ends[n_breaks] = fd->T - 1;
     }
 
-    return ssgr;
+    // 计算总SSR
+    double total_ssgr = 0.0;
+
+    for (int seg = 0; seg < n_segments; seg++)
+    {
+        double **mean = compute_segment_mean(fd, starts[seg], ends[seg]);
+        double ssgr = compute_ssgr(fd, starts[seg], ends[seg], mean);
+        total_ssgr += ssgr;
+        free_segment_mean(mean, fd->n_grid);
+    }
+
+    // BIC
+    double bic = log(total_ssgr / fd->T) + (double)n_segments * log((double)fd->T) / fd->T;
+
+    free(starts);
+    free(ends);
+
+    return bic;
 }
 
 /**
- * 计算segment的平均函数 mean(s) = (1/n) Σ_t X_t(s)
+ * 保存检测结果
  */
-double **compute_segment_mean(FunctionalData *fd, int start, int end)
+void save_results(const char *output_file, BreakpointResult *result)
 {
 
-    double **mean = (double **)malloc(fd->n_grid * sizeof(double *));
-    for (int i = 0; i < fd->n_grid; i++)
-    {
-        mean[i] = (double *)calloc(1, sizeof(double));
-    }
-
-    int n_obs = end - start + 1;
-
-    for (int t = start; t <= end; t++)
-    {
-        for (int i = 0; i < fd->n_grid; i++)
-        {
-            mean[i][0] += fd->data[t][i];
-        }
-    }
-
-    for (int i = 0; i < fd->n_grid; i++)
-    {
-        mean[i][0] /= n_obs;
-    }
-
-    return mean;
-}
-
-void free_segment_mean(double **mean, int n_grid)
-{
-    for (int i = 0; i < n_grid; i++)
-    {
-        free(mean[i]);
-    }
-    free(mean);
-}
-
-/**
- * 计算BIC = T * log(SSGR/T) + k * log(T)
- */
-double compute_bic(double ssgr, int n_obs, int n_params)
-{
-    return n_obs * log(ssgr / n_obs) + n_params * log(n_obs);
-}
-
-/**
- * 保存断点结果
- */
-void save_breakpoints(const char *output_file, BreakpointResult *result)
-{
     FILE *fp = fopen(output_file, "w");
     if (fp == NULL)
     {
@@ -412,11 +352,11 @@ void save_breakpoints(const char *output_file, BreakpointResult *result)
     }
 
     fprintf(fp, "n_breaks=%d\n", result->n_breaks);
-    fprintf(fp, "position,test_stat,p_value\n");
+    fprintf(fp, "\nposition,test_stat,p_value\n");
 
     for (int i = 0; i < result->n_breaks; i++)
     {
-        fprintf(fp, "%d,%.6f,%.6f\n",
+        fprintf(fp, "%d,%.10f,%.10f\n",
                 result->breaks[i].position,
                 result->breaks[i].test_stat,
                 result->breaks[i].p_value);
@@ -425,22 +365,13 @@ void save_breakpoints(const char *output_file, BreakpointResult *result)
     fclose(fp);
 }
 
-void free_breakpoint_result(BreakpointResult *result)
+/**
+ * 释放结果
+ */
+void free_result(BreakpointResult *result)
 {
+    if (result == NULL)
+        return;
     free(result->breaks);
     free(result);
-}
-
-/* ========== 辅助函数 (与characteristic_function.c相同) ========== */
-
-FunctionalData *load_data(const char *data_file, const char *meta_file)
-{
-    // [实现与之前相同，这里省略]
-    // ...
-    return NULL; // placeholder
-}
-
-void free_data(FunctionalData *fd)
-{
-    // [实现与之前相同]
 }

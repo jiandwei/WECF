@@ -329,3 +329,4 @@ main.pdf
 *.exe
 *.png
 *.pdf
+*.o

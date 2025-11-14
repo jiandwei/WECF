@@ -1,10 +1,10 @@
 /*
  * ============================================================================
  * 文件名: bootstrap.c
- * 功能: Moving Block Bootstrap for Critical Value Estimation
- * 理论基础: Politis & Romano (1994) - Limit Theorems for Block Bootstrap
- * 编译: gcc -O3 -fopenmp -o bootstrap bootstrap.c -lm
- * 使用: ./bootstrap <data_file> <meta_file> <output_file> <B> <block_length>
+ * 功能: Moving Block Bootstrap for p-value Calculation
+ * 理论基础: Carlstein (1986) Moving Block Bootstrap
+ * 编译: gcc -O3 -fopenmp -o bootstrap bootstrap.c utils.o -lm
+ * 使用: ./bootstrap <data_file> <meta_file> <breakpoint_file> <n_bootstrap> <block_length>
  * ============================================================================
  */
 
@@ -14,36 +14,29 @@
 #include <math.h>
 #include <time.h>
 #include <omp.h>
+#include "utils.h" // 使用共享的工具函数
 
 #define MAX_LINE 1024
+#define MAX_BREAKS 50
 
-/* ========== 数据结构 ========== */
+/* ========== Bootstrap特有的数据结构 ========== */
 
 typedef struct
 {
-    double **data;
-    int T;
-    int n_grid;
-    double s_min;
-    double s_max;
-    double *s_grid;
-} FunctionalData;
-
-/* ========== 外部函数声明 ========== */
-extern FunctionalData *load_data(const char *data_file, const char *meta_file);
-extern void free_data(FunctionalData *fd);
-extern double compute_ssgr(FunctionalData *fd, int start, int end, double **segment_mean);
-extern double **compute_segment_mean(FunctionalData *fd, int start, int end);
-extern void free_segment_mean(double **mean, int n_grid);
+    int n_breaks;
+    int positions[MAX_BREAKS];
+    double test_stats[MAX_BREAKS];
+    double p_values[MAX_BREAKS];
+} BootstrapResult;
 
 /* ========== Bootstrap函数声明 ========== */
 
-FunctionalData *generate_bootstrap_sample(FunctionalData *original, int block_length, unsigned int seed);
-double compute_test_statistic(FunctionalData *fd);
-void moving_block_bootstrap(FunctionalData *fd, int B, int block_length,
-                            double *bootstrap_stats, double *critical_values);
-void save_bootstrap_results(const char *output_file, double *bootstrap_stats,
-                            double *critical_values, int B);
+FunctionalData *moving_block_bootstrap(FunctionalData *fd, int block_length);
+double compute_test_statistic_at_position(FunctionalData *fd, int position);
+BootstrapResult *compute_p_values(FunctionalData *fd, const char *breakpoint_file,
+                                  int n_bootstrap, int block_length);
+void save_bootstrap_results(const char *output_file, BootstrapResult *result);
+void free_bootstrap_result(BootstrapResult *result);
 
 /* ========== 主函数 ========== */
 
@@ -52,24 +45,28 @@ int main(int argc, char *argv[])
 
     if (argc != 6)
     {
-        fprintf(stderr, "用法: %s <data_file> <meta_file> <output_file> <B> <block_length>\n", argv[0]);
-        fprintf(stderr, "  B: Bootstrap重复次数 (推荐 >= 999)\n");
-        fprintf(stderr, "  block_length: Block长度 (推荐 T^{1/3})\n");
+        fprintf(stderr, "用法: %s <data_file> <meta_file> <breakpoint_file> <n_bootstrap> <block_length>\n", argv[0]);
+        fprintf(stderr, "  breakpoint_file: 断点检测结果文件\n");
+        fprintf(stderr, "  n_bootstrap: Bootstrap重复次数（推荐 >= 1000）\n");
+        fprintf(stderr, "  block_length: 移动块长度（推荐 20-50）\n");
         return 1;
     }
 
     const char *data_file = argv[1];
     const char *meta_file = argv[2];
-    const char *output_file = argv[3];
-    int B = atoi(argv[4]);
+    const char *breakpoint_file = argv[3];
+    int n_bootstrap = atoi(argv[4]);
     int block_length = atoi(argv[5]);
 
     printf("================================================\n");
-    printf("Moving Block Bootstrap\n");
+    printf("Moving Block Bootstrap for p-value Calculation\n");
     printf("================================================\n");
-    printf("Bootstrap重复次数: %d\n", B);
-    printf("Block长度: %d\n", block_length);
+    printf("Bootstrap次数: %d\n", n_bootstrap);
+    printf("块长度: %d\n", block_length);
     printf("OpenMP线程数: %d\n", omp_get_max_threads());
+
+    // 设置随机数种子
+    srand(time(NULL) + omp_get_thread_num());
 
     // 加载数据
     printf("\n[1/3] 加载数据...\n");
@@ -78,36 +75,25 @@ int main(int argc, char *argv[])
     {
         return 1;
     }
-    printf("  √ T = %d\n", fd->T);
+    printf("  √ T = %d, n_grid = %d\n", fd->T, fd->n_grid);
 
-    // 验证block长度
-    if (block_length < 2 || block_length > fd->T / 2)
-    {
-        fprintf(stderr, "错误: Block长度必须在 [2, T/2] 范围内\n");
-        free_data(fd);
-        return 1;
-    }
-
-    // 分配内存存储bootstrap统计量
-    double *bootstrap_stats = (double *)malloc(B * sizeof(double));
-    double *critical_values = (double *)malloc(10 * sizeof(double)); // 存储不同α的临界值
-
-    // 执行bootstrap
-    printf("\n[2/3] 执行Moving Block Bootstrap...\n");
+    // 计算p值
+    printf("\n[2/3] 执行Bootstrap计算p值...\n");
     double start_time = omp_get_wtime();
 
-    moving_block_bootstrap(fd, B, block_length, bootstrap_stats, critical_values);
+    BootstrapResult *result = compute_p_values(fd, breakpoint_file, n_bootstrap, block_length);
 
     double end_time = omp_get_wtime();
     printf("  √ Bootstrap完成! 用时: %.2f 秒\n", end_time - start_time);
 
     // 保存结果
     printf("\n[3/3] 保存结果...\n");
-    save_bootstrap_results(output_file, bootstrap_stats, critical_values, B);
+    char output_file[256];
+    snprintf(output_file, sizeof(output_file), "%s.bootstrap", breakpoint_file);
+    save_bootstrap_results(output_file, result);
 
     // 清理
-    free(bootstrap_stats);
-    free(critical_values);
+    free_bootstrap_result(result);
     free_data(fd);
 
     printf("\n================================================\n");
@@ -117,154 +103,156 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-/* ========== Bootstrap实现 ========== */
+/* ========== Moving Block Bootstrap实现 ========== */
 
 /**
  * Moving Block Bootstrap主函数
  *
  * 算法步骤:
- * 1. 对b = 1, ..., B:
- *    a) 生成bootstrap样本 X*_b
- *    b) 计算检验统计量 T*_b
- * 2. 计算临界值: CV_α = quantile(T*_b, 1-α)
+ * 1. 对每个检测到的断点:
+ *    a) 计算原始检验统计量
+ *    b) 生成B个bootstrap样本
+ *    c) 对每个bootstrap样本计算检验统计量
+ *    d) p值 = #{bootstrap统计量 >= 原始统计量} / B
  */
-void moving_block_bootstrap(FunctionalData *fd, int B, int block_length,
-                            double *bootstrap_stats, double *critical_values)
+BootstrapResult *compute_p_values(FunctionalData *fd, const char *breakpoint_file,
+                                  int n_bootstrap, int block_length)
 {
 
-    // 计算原始数据的检验统计量（用于对比）
-    double original_stat = compute_test_statistic(fd);
-    printf("  原始数据检验统计量: %.6f\n", original_stat);
+    BootstrapResult *result = (BootstrapResult *)malloc(sizeof(BootstrapResult));
 
-    // 并行执行bootstrap
-    printf("  开始bootstrap循环...\n");
+    // 读取断点位置
+    FILE *fp = fopen(breakpoint_file, "r");
+    if (fp == NULL)
+    {
+        fprintf(stderr, "错误: 无法打开断点文件\n");
+        return NULL;
+    }
 
-#pragma omp parallel for schedule(dynamic)
-    for (int b = 0; b < B; b++)
+    char line[MAX_LINE];
+    result->n_breaks = 0;
+
+    while (fgets(line, MAX_LINE, fp))
+    {
+        if (strncmp(line, "n_breaks=", 9) == 0)
+        {
+            sscanf(line, "n_breaks=%d", &result->n_breaks);
+        }
+        else if (result->n_breaks > 0 && strchr(line, ',') != NULL &&
+                 strncmp(line, "position", 8) != 0)
+        {
+            int pos;
+            double stat;
+            if (sscanf(line, "%d,%lf,", &pos, &stat) == 2)
+            {
+                int idx = 0;
+                while (idx < result->n_breaks && result->positions[idx] != 0)
+                    idx++;
+                if (idx < result->n_breaks)
+                {
+                    result->positions[idx] = pos;
+                    result->test_stats[idx] = stat;
+                }
+            }
+        }
+    }
+    fclose(fp);
+
+    printf("  读取到 %d 个断点\n", result->n_breaks);
+
+    // 对每个断点计算p值
+    for (int b = 0; b < result->n_breaks; b++)
     {
 
-        // 生成随机种子（线程安全）
-        unsigned int seed = (unsigned int)time(NULL) + b + omp_get_thread_num() * 1000;
+        int position = result->positions[b];
+        double original_stat = result->test_stats[b];
 
-        // 生成bootstrap样本
-        FunctionalData *boot_sample = generate_bootstrap_sample(fd, block_length, seed);
+        printf("  断点 %d/%d (position = %d)...\n", b + 1, result->n_breaks, position);
 
-        // 计算检验统计量
-        bootstrap_stats[b] = compute_test_statistic(boot_sample);
+        int count_exceed = 0;
 
-        // 释放bootstrap样本
-        free_data(boot_sample);
-
-        // 进度显示（每10%显示一次）
-        if ((b + 1) % (B / 10) == 0)
+// Bootstrap循环
+#pragma omp parallel for reduction(+ : count_exceed)
+        for (int boot = 0; boot < n_bootstrap; boot++)
         {
+
+            // 生成bootstrap样本
+            FunctionalData *boot_sample = moving_block_bootstrap(fd, block_length);
+
+            // 计算bootstrap检验统计量
+            double boot_stat = compute_test_statistic_at_position(boot_sample, position);
+
+            // 计数
+            if (boot_stat >= original_stat)
+            {
+                count_exceed++;
+            }
+
+            // 清理
+            free_data(boot_sample);
+
+            // 进度报告
+            if ((boot + 1) % 100 == 0)
+            {
 #pragma omp critical
-            {
-                printf("    进度: %d/%d (%.1f%%)\n", b + 1, B, 100.0 * (b + 1) / B);
+                {
+                    printf("\r    进度: %d/%d", boot + 1, n_bootstrap);
+                    fflush(stdout);
+                }
             }
         }
+
+        result->p_values[b] = (double)count_exceed / n_bootstrap;
+        printf("\n    √ p值 = %.4f\n", result->p_values[b]);
     }
 
-    // 对bootstrap统计量排序（用于计算分位数）
-    printf("  计算临界值...\n");
-
-    // 简单的冒泡排序（对小规模数据足够）
-    for (int i = 0; i < B - 1; i++)
-    {
-        for (int j = 0; j < B - i - 1; j++)
-        {
-            if (bootstrap_stats[j] > bootstrap_stats[j + 1])
-            {
-                double temp = bootstrap_stats[j];
-                bootstrap_stats[j] = bootstrap_stats[j + 1];
-                bootstrap_stats[j + 1] = temp;
-            }
-        }
-    }
-
-    // 计算不同显著性水平的临界值
-    double alpha_levels[10] = {0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50};
-
-    for (int i = 0; i < 10; i++)
-    {
-        int idx = (int)((1.0 - alpha_levels[i]) * B);
-        if (idx >= B)
-            idx = B - 1;
-        critical_values[i] = bootstrap_stats[idx];
-
-        printf("    α = %.3f: CV = %.6f\n", alpha_levels[i], critical_values[i]);
-    }
-
-    // 计算p值
-    int count_exceed = 0;
-    for (int b = 0; b < B; b++)
-    {
-        if (bootstrap_stats[b] >= original_stat)
-        {
-            count_exceed++;
-        }
-    }
-    double p_value = (double)count_exceed / B;
-    printf("  p值: %.6f\n", p_value);
+    return result;
 }
 
 /**
  * 生成Moving Block Bootstrap样本
  *
  * 算法:
- * 1. 计算需要的block数: n_blocks = ceil(T / block_length)
- * 2. 对每个block，随机选择起始位置
- * 3. 复制连续的block_length个观测
+ * 1. 将时间序列分成长度为block_length的块
+ * 2. 随机重采样这些块
+ * 3. 拼接成新的时间序列
  */
-FunctionalData *generate_bootstrap_sample(FunctionalData *original,
-                                          int block_length,
-                                          unsigned int seed)
+FunctionalData *moving_block_bootstrap(FunctionalData *fd, int block_length)
 {
 
-    // 初始化bootstrap样本
+    // 分配bootstrap样本
     FunctionalData *boot = (FunctionalData *)malloc(sizeof(FunctionalData));
-    boot->T = original->T;
-    boot->n_grid = original->n_grid;
-    boot->s_min = original->s_min;
-    boot->s_max = original->s_max;
-    boot->s_grid = original->s_grid; // 共享网格
+    boot->T = fd->T;
+    boot->n_grid = fd->n_grid;
+    boot->s_min = fd->s_min;
+    boot->s_max = fd->s_max;
+    boot->s_grid = fd->s_grid; // 共享网格
 
-    // 分配内存
     boot->data = (double **)malloc(boot->T * sizeof(double *));
     for (int t = 0; t < boot->T; t++)
     {
         boot->data[t] = (double *)malloc(boot->n_grid * sizeof(double));
     }
 
-    // 设置随机数生成器
-    srand(seed);
-
-    // 计算需要的block数
-    int n_blocks = (original->T + block_length - 1) / block_length;
+    // 计算需要的块数
+    int n_blocks = (int)ceil((double)fd->T / block_length);
 
     // 生成bootstrap样本
-    int boot_idx = 0;
+    int current_t = 0;
 
-    for (int block = 0; block < n_blocks; block++)
+    for (int b = 0; b < n_blocks && current_t < boot->T; b++)
     {
 
-        // 随机选择block起始位置
-        int max_start = original->T - block_length;
-        if (max_start < 0)
-            max_start = 0;
+        // 随机选择起始位置
+        int start = rand() % (fd->T - block_length + 1);
 
-        int block_start = rand() % (max_start + 1);
-
-        // 复制block
-        for (int i = 0; i < block_length && boot_idx < boot->T; i++)
+        // 复制块
+        for (int offset = 0; offset < block_length && current_t < boot->T; offset++)
         {
-            int orig_idx = block_start + i;
-            if (orig_idx >= original->T)
-                break;
-
-            memcpy(boot->data[boot_idx], original->data[orig_idx],
+            int source_t = start + offset;
+            memcpy(boot->data[current_t], fd->data[source_t],
                    boot->n_grid * sizeof(double));
-            boot_idx++;
+            current_t++;
         }
     }
 
@@ -272,59 +260,46 @@ FunctionalData *generate_bootstrap_sample(FunctionalData *original,
 }
 
 /**
- * 计算检验统计量
- *
- * 这里使用supF统计量:
- * T = max_{r ∈ [ε, 1-ε]} F_T(r)
- * 其中 F_T(r) 基于SSGR
+ * 计算给定位置的检验统计量
  */
-double compute_test_statistic(FunctionalData *fd)
+double compute_test_statistic_at_position(FunctionalData *fd, int position)
 {
 
-    double epsilon = 0.1; // Trimming参数
-    int start_idx = (int)(epsilon * fd->T);
-    int end_idx = (int)((1 - epsilon) * fd->T);
-
-    double max_stat = 0.0;
-
-// 搜索所有候选断点位置
-#pragma omp parallel for reduction(max : max_stat)
-    for (int tau = start_idx; tau <= end_idx; tau++)
+    // 确保位置有效
+    if (position <= 10 || position >= fd->T - 10)
     {
-
-        // 计算分割后的SSGR
-        double **mean_left = compute_segment_mean(fd, 0, tau);
-        double **mean_right = compute_segment_mean(fd, tau + 1, fd->T - 1);
-
-        double ssgr_left = compute_ssgr(fd, 0, tau, mean_left);
-        double ssgr_right = compute_ssgr(fd, tau + 1, fd->T - 1, mean_right);
-
-        // 计算无断点的SSGR
-        double **mean_full = compute_segment_mean(fd, 0, fd->T - 1);
-        double ssgr_full = compute_ssgr(fd, 0, fd->T - 1, mean_full);
-
-        // F统计量
-        double F_stat = (ssgr_full - (ssgr_left + ssgr_right)) * tau * (fd->T - tau) / fd->T;
-
-        if (F_stat > max_stat)
-        {
-            max_stat = F_stat;
-        }
-
-        // 清理
-        free_segment_mean(mean_left, fd->n_grid);
-        free_segment_mean(mean_right, fd->n_grid);
-        free_segment_mean(mean_full, fd->n_grid);
+        return 0.0;
     }
 
-    return max_stat;
+    int start = 0;
+    int end = fd->T - 1;
+
+    // 计算分割后的SSGR
+    double **mean_left = compute_segment_mean(fd, start, position - 1);
+    double **mean_right = compute_segment_mean(fd, position, end);
+
+    double ssgr_left = compute_ssgr(fd, start, position - 1, mean_left);
+    double ssgr_right = compute_ssgr(fd, position, end, mean_right);
+
+    // 计算无分割的SSGR
+    double **mean_full = compute_segment_mean(fd, start, end);
+    double ssgr_full = compute_ssgr(fd, start, end, mean_full);
+
+    // 检验统计量
+    double stat = ssgr_full - (ssgr_left + ssgr_right);
+
+    // 清理
+    free_segment_mean(mean_left, fd->n_grid);
+    free_segment_mean(mean_right, fd->n_grid);
+    free_segment_mean(mean_full, fd->n_grid);
+
+    return stat;
 }
 
 /**
- * 保存bootstrap结果
+ * 保存Bootstrap结果
  */
-void save_bootstrap_results(const char *output_file, double *bootstrap_stats,
-                            double *critical_values, int B)
+void save_bootstrap_results(const char *output_file, BootstrapResult *result)
 {
 
     FILE *fp = fopen(output_file, "w");
@@ -334,23 +309,28 @@ void save_bootstrap_results(const char *output_file, double *bootstrap_stats,
         return;
     }
 
-    // 写入临界值
-    fprintf(fp, "# Critical Values\n");
-    fprintf(fp, "alpha,critical_value\n");
+    fprintf(fp, "n_breaks=%d\n", result->n_breaks);
+    fprintf(fp, "\nposition,test_stat,p_value\n");
 
-    double alpha_levels[10] = {0.01, 0.02, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50};
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < result->n_breaks; i++)
     {
-        fprintf(fp, "%.3f,%.10f\n", alpha_levels[i], critical_values[i]);
-    }
-
-    // 写入bootstrap分布
-    fprintf(fp, "\n# Bootstrap Distribution\n");
-    fprintf(fp, "iteration,statistic\n");
-    for (int b = 0; b < B; b++)
-    {
-        fprintf(fp, "%d,%.10f\n", b + 1, bootstrap_stats[b]);
+        fprintf(fp, "%d,%.10f,%.10f\n",
+                result->positions[i],
+                result->test_stats[i],
+                result->p_values[i]);
     }
 
     fclose(fp);
+
+    printf("  √ 保存完成\n");
+}
+
+/**
+ * 释放Bootstrap结果
+ */
+void free_bootstrap_result(BootstrapResult *result)
+{
+    if (result == NULL)
+        return;
+    free(result);
 }
