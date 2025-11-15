@@ -49,8 +49,7 @@ clean:
 	rm -f $(BIN_DIR)/*.exe
 	rm -f $(SRC_DIR)/*.o
 	rm -f $(BIN_DIR)/*.pdf
-	rm -f $(BIN_DIR)/results/*.txt
-	rm -f $(BIN_DIR)/results/monte_carlo/*
+	rm -rf $(BIN_DIR)/results/*
 	rm -f $(BIN_DIR)/data/*
 	rm -f data/temp*
 	@echo "  √ 清理完成"
