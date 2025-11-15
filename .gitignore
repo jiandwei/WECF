@@ -332,3 +332,4 @@ main.pdf
 *.o
 *.txt
 *.bin
+*.bootstrap

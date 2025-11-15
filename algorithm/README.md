@@ -150,6 +150,28 @@ cd algorithm\code
 ./bootstrap ./data/temp_data.bin ./data/temp_meta.txt ./results/breakpoints.txt 100 8
 ```
 
+## Monte Carlo 模拟
+
+`algorithm/code/run_monte_carlo.R` 提供了可复现的 Monte Carlo 驱动，可批量评估断点检测与 Bootstrap 推断的表现。默认包含两个时间序列场景（AR(1) + 两个断点、MA(1) + 单断点），并输出逐次与汇总结果至 `algorithm/code/results/monte_carlo/`。
+
+运行示例（仓库根目录）：
+
+```powershell
+Rscript algorithm/code/run_monte_carlo.R --reps=20 --tolerance=30 --bootstrap
+```
+
+可用参数：
+
+- `--reps=<int>`：每个场景的模拟次数（默认 100）。
+- `--tolerance=<int>`：判断命中断点的容忍范围，单位为观测点（默认 25）。
+- `--bootstrap`：添加该标志或指定 `--bootstrap=true` 即会在每次重复后运行自助法（默认关闭以节省时间）。
+- `--seed=<int>`：基础随机种子，保证可复现性（默认 2024）。
+
+输出文件：
+
+- `monte_carlo_results.csv`：逐次重复的详细记录（TP/FP/FN、精度、召回、耗时等）。
+- `monte_carlo_summary.csv`：按场景聚合后的平均表现。
+
 ## 贡献与联系方式
 
 如果你对算法实现、参数、可视化或文档有建议，请在项目中提交 issue 或 pull request，或直接联系仓库维护者。
