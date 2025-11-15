@@ -54,7 +54,7 @@ generate_functional_data <- function(
     set.seed(seed)
 
     # ========== 参数检查 ==========
-    if (any(breakpoints <= 0 | breakpoints >= 1)) {
+    if (length(breakpoints) > 0 && any(breakpoints <= 0 | breakpoints >= 1)) {
         stop("断点必须在(0, 1)区间内")
     }
     breakpoints <- sort(breakpoints)
