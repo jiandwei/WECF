@@ -333,3 +333,4 @@ main.pdf
 *.txt
 *.bin
 *.bootstrap
+*/*_cache/*
