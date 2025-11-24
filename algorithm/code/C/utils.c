@@ -137,6 +137,28 @@ void free_segment_mean(double **mean, int n_grid)
     free(mean);
 }
 
+double compute_ssgr_weighted(FunctionalData *fd, int start, int end,
+                             double **segment_mean, double *s_weights)
+{
+    double ssgr = 0.0;
+    double ds = (fd->s_max - fd->s_min) / (fd->n_grid - 1.0);
+
+#pragma omp parallel for reduction(+ : ssgr)
+    for (int t = start; t <= end; t++)
+    {
+        for (int i = 0; i < fd->n_grid; i++)
+        {
+            double residual = fd->data[t][i] - segment_mean[i][0];
+
+            // 使用自定义权重函数
+            double weight = (s_weights != NULL) ? s_weights[i] : 1.0;
+
+            ssgr += residual * residual * weight * ds;
+        }
+    }
+    return ssgr;
+}
+
 double compute_ssgr(FunctionalData *fd, int start, int end, double **segment_mean)
 {
 
