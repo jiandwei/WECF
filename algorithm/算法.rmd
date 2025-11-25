@@ -1,0 +1,1799 @@
+---
+title: "函数型数据结构断点检测：核心算法实现"
+subtitle: "基于经验特征函数与能量距离的方法"
+author: "计量经济学博士研究"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    code_folding: hide
+    theme: cosmo
+    highlight: tango
+    number_sections: true
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  cache = FALSE
+)
+```
+
+# 引言
+
+本文档实现了融合Boniece et al. (2025)和Fu et al. (2023)思想的函数型数据结构断点检测方法的前四个核心算法：
+
+1. **算法1**：函数型数据生成（含结构断点）
+2. **算法2**：经验特征函数（ECF）计算
+3. **算法3**：平方广义残差和（SSGR）计算
+4. **算法4**：二元分割主算法
+5. **算法6**：序贯检验
+## 理论背景
+
+### 广义回归框架
+
+给定函数型观测 $\{X_t(s)\}_{t=1}^T$，$s \in [0,1]$，我们建立如下表示：
+
+$$e^{iu\int X_t(s)ds} = \phi_t(u) + \varepsilon_t(u)$$
+
+其中：
+- $\phi_t(u) = E[e^{iu\int X_t(s)ds}]$ 是特征函数
+- $\varepsilon_t(u)$ 是广义误差，满足 $E[\varepsilon_t(u)] = 0$
+
+### SSGR目标函数
+
+断点估计通过最小化以下目标函数：
+
+$$\text{SSGR}_M = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_{\mathbb{R}} \left|e^{iu\int X_t(s)ds} - \tilde{\phi}_j(u)\right|^2 W(u)du$$
+
+## 依赖包加载
+
+```{r load-packages}
+# 函数型数据分析
+library(fda) # Functional Data Analysis
+library(MASS) # 多元正态分布
+
+# 数值计算
+library(Matrix) # 稀疏矩阵
+library(pracma) # 数值积分
+
+# 可视化
+library(ggplot2)
+library(gridExtra)
+library(reshape2)
+library(viridis)
+
+# 并行计算
+library(parallel)
+library(doParallel)
+
+# 设置随机种子
+set.seed(42)
+```
+
+---
+
+# 算法1：函数型数据生成
+
+## 理论说明
+
+生成带有 $M_0$ 个结构断点的函数型时间序列数据。数据采用Karhunen-Loève表示：
+
+$$X_t(s) = \mu_{j(t)}(s) + \sum_{\ell=1}^L \lambda_\ell^{1/2} \xi_{\ell,t} \psi_\ell(s)$$
+
+其中：
+- $\mu_{j(t)}(s)$ 是第 $j(t)$ 个regime的均值函数
+- $\{\psi_\ell\}$ 是正交基函数（Fourier或B-spline）
+- $\xi_{\ell,t}$ 是随机系数，可设为AR(1)以引入时间依赖性
+
+## R实现
+
+```{r algorithm1}
+#' 算法1：生成带结构断点的函数型数据
+#'
+#' @param T 样本量
+#' @param grid_size 网格点数
+#' @param M0 断点个数
+#' @param break_type 断点类型："mean", "variance", "distribution"
+#' @param rho AR(1)系数（控制时间依赖性）
+#' @param sigma_nu 测量误差标准差
+#' @param nbasis 基函数个数
+#' @return 列表，包含X（数据矩阵）、t_grid（时间网格）、true_breaks（真实断点）
+GenerateFunctionalData <- function(T = 200,
+                                   grid_size = 128,
+                                   M0 = 2,
+                                   break_type = "mean",
+                                   rho = 0.3,
+                                   sigma_nu = 0,
+                                   nbasis = 20) {
+  cat("生成函数型数据...\n")
+  cat(sprintf("  样本量: T = %d\n", T))
+  cat(sprintf("  网格点: %d\n", grid_size))
+  cat(sprintf("  断点数: M0 = %d\n", M0))
+  cat(sprintf("  断点类型: %s\n", break_type))
+
+  # 1. 创建时间网格
+  t_grid <- seq(0, 1, length.out = grid_size)
+
+  # 2. 创建Fourier基函数
+  basis <- create.fourier.basis(rangeval = c(0, 1), nbasis = nbasis)
+  nbasis <- basis$nbasis # Update nbasis to match the actual basis object
+
+  # 3. 计算断点位置
+  if (M0 == 2) {
+    T1 <- floor(T * 0.3)
+    T2 <- floor(T * 0.7)
+    true_breaks <- c(T1, T2)
+  } else if (M0 == 1) {
+    T1 <- floor(T * 0.5)
+    true_breaks <- T1
+  } else if (M0 == 3) {
+    true_breaks <- floor(T * c(0.25, 0.5, 0.75))
+  } else {
+    # 均匀分布断点
+    true_breaks <- floor(T * seq(1 / (M0 + 1), M0 / (M0 + 1), length.out = M0))
+  }
+
+  # 4. 初始化系数矩阵
+  coef_matrix <- matrix(0, nrow = T, ncol = nbasis)
+
+  # 5. 生成特征值（指数衰减）
+  eigenvalues <- exp(-(0:(nbasis - 1)) / 2)
+
+  # 6. 根据断点类型生成数据
+  if (break_type == "mean") {
+    # 均值函数断点
+    cat("  生成均值函数断点...\n")
+
+    # Regime 1: 均值为0
+    for (t in 1:true_breaks[1]) {
+      # AR(1)过程
+      if (t == 1) {
+        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
+      } else {
+        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
+          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
+      }
+    }
+
+    # Regime 2: 均值为2（在第一个基函数上）
+    for (t in (true_breaks[1] + 1):true_breaks[2]) {
+      if (t == true_breaks[1] + 1) {
+        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
+        coef_matrix[t, 1] <- coef_matrix[t, 1] + 2
+      } else {
+        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
+          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
+        coef_matrix[t, 1] <- coef_matrix[t, 1] + 2
+      }
+    }
+
+    # Regime 3: 均值为-1
+    for (t in (true_breaks[2] + 1):T) {
+      if (t == true_breaks[2] + 1) {
+        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
+        coef_matrix[t, 1] <- coef_matrix[t, 1] - 1
+      } else {
+        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
+          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
+        coef_matrix[t, 1] <- coef_matrix[t, 1] - 1
+      }
+    }
+  } else if (break_type == "variance") {
+    # 方差断点
+    cat("  生成方差断点...\n")
+
+    # Regime 1: 方差 = 1
+    coef_matrix[1:true_breaks[1], ] <-
+      mvrnorm(true_breaks[1], rep(0, nbasis), diag(eigenvalues))
+
+    # Regime 2: 方差 = 4
+    coef_matrix[(true_breaks[1] + 1):true_breaks[2], ] <-
+      mvrnorm(true_breaks[2] - true_breaks[1], rep(0, nbasis), diag(4 * eigenvalues))
+
+    # Regime 3: 方差 = 0.5
+    coef_matrix[(true_breaks[2] + 1):T, ] <-
+      mvrnorm(T - true_breaks[2], rep(0, nbasis), diag(0.5 * eigenvalues))
+  } else if (break_type == "distribution") {
+    # 分布形状断点（改变特征值结构）
+    cat("  生成分布形状断点...\n")
+
+    # Regime 1: 标准特征值
+    lambda1 <- eigenvalues
+    coef_matrix[1:true_breaks[1], ] <-
+      mvrnorm(true_breaks[1], rep(0, nbasis), diag(lambda1))
+
+    # Regime 2: 快速衰减
+    lambda2 <- exp(-(0:(nbasis - 1)))
+    coef_matrix[(true_breaks[1] + 1):true_breaks[2], ] <-
+      mvrnorm(true_breaks[2] - true_breaks[1], rep(0, nbasis), diag(lambda2))
+
+    # Regime 3: 慢速衰减
+    lambda3 <- 1 / (1 + (0:(nbasis - 1)))
+    coef_matrix[(true_breaks[2] + 1):T, ] <-
+      mvrnorm(T - true_breaks[2], rep(0, nbasis), diag(lambda3))
+  }
+
+  # 7. 转换为函数型对象
+  fd_obj <- fd(t(coef_matrix), basis)
+
+  # 8. 在网格上评估
+  X_matrix <- eval.fd(t_grid, fd_obj) # grid_size × T
+  X_matrix <- t(X_matrix) # T × grid_size
+
+  # 9. 添加测量误差（如果需要）
+  if (sigma_nu > 0) {
+    X_matrix <- X_matrix + matrix(rnorm(T * grid_size, 0, sigma_nu),
+      nrow = T, ncol = grid_size
+    )
+  }
+
+  cat("  数据生成完成!\n\n")
+
+  return(list(
+    X = X_matrix,
+    t_grid = t_grid,
+    true_breaks = true_breaks,
+    break_fractions = true_breaks / T,
+    params = list(
+      T = T,
+      grid_size = grid_size,
+      M0 = M0,
+      break_type = break_type,
+      rho = rho,
+      sigma_nu = sigma_nu,
+      nbasis = nbasis
+    )
+  ))
+}
+
+# 测试函数
+test_data <- GenerateFunctionalData(
+  T = 600,
+  grid_size = 512,
+  M0 = 3,
+  break_type = "variance",
+  rho = 0.3,
+  sigma_nu = 0.1
+)
+
+cat("数据维度:", dim(test_data$X), "\n")
+cat("真实断点:", test_data$true_breaks, "\n")
+cat("断点分数:", test_data$break_fractions, "\n")
+```
+
+## 可视化
+
+```{r plot-generated-data, fig.height=8}
+#' 可视化函数型数据
+PlotFunctionalData <- function(data, max_curves = 50) {
+  X <- data$X
+  t_grid <- data$t_grid
+  true_breaks <- data$true_breaks
+  T <- nrow(X)
+
+  # 随机抽取部分曲线以避免过度绘制
+  if (T > max_curves) {
+    idx_sample <- sort(sample(1:T, max_curves))
+  } else {
+    idx_sample <- 1:T
+  }
+
+  # 准备数据框
+  df <- data.frame(
+    time_point = rep(t_grid, length(idx_sample)),
+    value = as.vector(t(X[idx_sample, ])),
+    curve_id = rep(idx_sample, each = length(t_grid))
+  )
+
+  # 添加regime信息
+  df$regime <- cut(
+    df$curve_id,
+    breaks = c(0, true_breaks, T),
+    labels = paste("Regime", 1:(length(true_breaks) + 1))
+  )
+
+  # 绘图
+  p1 <- ggplot(df, aes(x = time_point, y = value, group = curve_id, color = regime)) +
+    geom_line(alpha = 0.3, size = 0.5) +
+    geom_vline(
+      xintercept = true_breaks / T,
+      linetype = "dashed", color = "red", size = 1
+    ) +
+    scale_color_viridis_d(option = "D") +
+    labs(
+      title = "函数型数据样本（按Regime着色）",
+      subtitle = sprintf("样本量 T = %d, 断点数 M0 = %d", T, length(true_breaks)),
+      x = "时间点 s ∈ [0,1]",
+      y = "X_t(s)",
+      color = "Regime"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "bottom")
+
+  # 均值函数图
+  mean_funcs <- data.frame(
+    time_point = rep(t_grid, length(true_breaks) + 1),
+    mean_value = numeric(length(t_grid) * (length(true_breaks) + 1)),
+    regime = rep(paste("Regime", 1:(length(true_breaks) + 1)),
+      each = length(t_grid)
+    )
+  )
+
+  idx <- 1
+  for (j in 1:(length(true_breaks) + 1)) {
+    start <- ifelse(j == 1, 1, true_breaks[j - 1] + 1)
+    end <- ifelse(j == length(true_breaks) + 1, T, true_breaks[j])
+    mean_funcs$mean_value[idx:(idx + length(t_grid) - 1)] <-
+      colMeans(X[start:end, ])
+    idx <- idx + length(t_grid)
+  }
+
+  p2 <- ggplot(mean_funcs, aes(x = time_point, y = mean_value, color = regime)) +
+    geom_line(size = 1.5) +
+    scale_color_viridis_d(option = "D") +
+    labs(
+      title = "各Regime的均值函数",
+      x = "时间点 s ∈ [0,1]",
+      y = "E[X_t(s)]",
+      color = "Regime"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "bottom")
+
+  grid.arrange(p1, p2, ncol = 1)
+}
+
+PlotFunctionalData(test_data)
+```
+
+---
+
+# 算法2：经验特征函数（ECF）计算
+
+## 理论说明
+
+经验特征函数定义为：
+
+$$\tilde{\phi}_j(u) = \frac{1}{T_j - T_{j-1}} \sum_{t=T_{j-1}+1}^{T_j} e^{iu \int X_t(s)ds}$$
+
+对于每个观测 $X_t(s)$，我们需要计算积分 $\int X_t(s)ds$，这里使用梯形法则数值积分。
+
+## R实现
+
+```{r algorithm2}
+#' 算法2：计算经验特征函数（ECF）
+#'
+#' @param X 函数型数据矩阵 (T × grid_size)
+#' @param t_grid 时间网格
+#' @param start 起始索引
+#' @param end 终止索引
+#' @param u 频率参数
+#' @param weights 积分权重（默认为梯形权重）
+#' @return ECF在频率u处的值（复数）
+ComputeECF <- function(X, t_grid, start, end, u, weights = NULL) {
+  # 子集数据
+  X_segment <- X[start:end, , drop = FALSE]
+  n <- end - start + 1
+  grid_size <- ncol(X)
+
+  # 如果未提供权重，使用梯形法则
+  if (is.null(weights)) {
+    dt <- diff(t_grid)
+    weights <- c(dt[1] / 2, (dt[-length(dt)] + dt[-1]) / 2, dt[length(dt)] / 2)
+  }
+
+  # 计算积分 ∫ X_t(s)ds 对每个t
+  integrals <- X_segment %*% weights
+
+  # 计算 exp(i × u × integral)
+  complex_values <- exp(1i * u * integrals)
+
+  # 经验特征函数
+  ecf <- mean(complex_values)
+
+  return(ecf)
+}
+
+#' 批量计算ECF（多个频率）
+#'
+#' @param X 数据矩阵
+#' @param t_grid 时间网格
+#' @param start 起始索引
+#' @param end 终止索引
+#' @param u_grid 频率网格
+#' @param parallel 是否并行计算
+#' @return 复数向量，每个元素对应一个频率
+ComputeECFGrid <- function(X, t_grid, start, end, u_grid, parallel = FALSE) {
+  if (parallel) {
+    # 并行计算
+    cl <- makeCluster(detectCores() - 1)
+    clusterExport(cl, c("ComputeECF"), envir = environment())
+
+    ecf_values <- parSapply(cl, u_grid, function(u) {
+      ComputeECF(X, t_grid, start, end, u)
+    })
+
+    stopCluster(cl)
+  } else {
+    # 串行计算
+    ecf_values <- sapply(u_grid, function(u) {
+      ComputeECF(X, t_grid, start, end, u)
+    })
+  }
+
+  return(ecf_values)
+}
+
+# 测试ECF计算
+u_test <- 2.0
+ecf_test <- ComputeECF(
+  test_data$X,
+  test_data$t_grid,
+  start = 1,
+  end = 100,
+  u = u_test
+)
+
+cat(sprintf(
+  "ECF(u=%.2f) = %.4f + %.4fi\n",
+  u_test, Re(ecf_test), Im(ecf_test)
+))
+cat(sprintf("|ECF| = %.4f\n", Mod(ecf_test)))
+
+# 绘制ECF在频率域的行为
+u_grid <- seq(-5, 5, length.out = 100)
+ecf_full <- ComputeECFGrid(
+  test_data$X,
+  test_data$t_grid,
+  start = 1,
+  end = nrow(test_data$X),
+  u_grid = u_grid
+)
+
+df_ecf <- data.frame(
+  u = u_grid,
+  real = Re(ecf_full),
+  imag = Im(ecf_full),
+  modulus = Mod(ecf_full)
+)
+
+p_ecf <- ggplot(df_ecf) +
+  geom_line(aes(x = u, y = real, color = "实部"), size = 1) +
+  geom_line(aes(x = u, y = imag, color = "虚部"), size = 1) +
+  geom_line(aes(x = u, y = modulus, color = "模"), size = 1, linetype = "dashed") +
+  scale_color_manual(
+    values = c("实部" = "blue", "虚部" = "red", "模" = "black")
+  ) +
+  labs(
+    title = "经验特征函数在频率域的行为",
+    x = "频率 u",
+    y = "φ(u)",
+    color = ""
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+print(p_ecf)
+```
+
+---
+
+# 算法3：平方广义残差和（SSGR）计算
+
+## 理论说明
+
+给定断点集合 $\{T_1, \ldots, T_M\}$，SSGR定义为：
+
+$$\text{SSGR}_M = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_{\mathbb{R}} \left|e^{iu\int X_t(s)ds} - \tilde{\phi}_j(u)\right|^2 W(u)du$$
+
+我们使用正态权重函数：$W(u) = (2\pi b)^{-1/2} e^{-u^2/(2b)}$
+
+## R实现
+
+```{r algorithm3}
+#' 算法3：计算平方广义残差和（SSGR）
+#'
+#' @param X 数据矩阵
+#' @param t_grid 时间网格
+#' @param break_points 断点位置向量（索引）
+#' @param u_grid 频率网格
+#' @param b 权重函数带宽参数
+#' @param parallel 是否并行
+#' @return SSGR数值
+ComputeSSGR <- function(X, t_grid, break_points = c(),
+                        u_grid = seq(-5, 5, length.out = 50),
+                        b = 1, parallel = FALSE) {
+  T <- nrow(X)
+  M <- length(break_points)
+
+  # 构建时间段
+  T_bounds <- c(0, break_points, T)
+
+  # 权重函数：正态分布
+  W_func <- function(u) {
+    dnorm(u, mean = 0, sd = sqrt(b))
+  }
+
+  # 初始化SSGR
+  SSGR <- 0
+
+  # 对每个segment计算
+  for (j in 1:(M + 1)) {
+    start <- T_bounds[j] + 1
+    end <- T_bounds[j + 1]
+
+    # 计算该segment的ECF
+    phi_j <- ComputeECFGrid(X, t_grid, start, end, u_grid, parallel = FALSE)
+
+    # 计算每个观测的贡献
+    for (t in start:end) {
+      # 对该观测在各频率的贡献
+      X_t <- X[t, , drop = FALSE]
+
+      # 计算积分
+      dt <- diff(t_grid)
+      weights <- c(dt[1] / 2, (dt[-length(dt)] + dt[-1]) / 2, dt[length(dt)] / 2)
+      integral <- as.numeric(X_t %*% weights)
+
+      # 计算 exp(i u ∫X_t)
+      exp_values <- exp(1i * u_grid * integral)
+
+      # 广义残差
+      epsilon <- exp_values - phi_j
+
+      # 权重
+      W_u <- W_func(u_grid)
+
+      # 数值积分（梯形法则）
+      du <- diff(u_grid)
+      integrand <- Mod(epsilon)^2 * W_u
+      contrib <- sum((integrand[-length(integrand)] + integrand[-1]) / 2 * du)
+
+      SSGR <- SSGR + contrib
+    }
+  }
+
+  return(SSGR)
+}
+
+# 测试SSGR计算
+
+# 情况1：无断点（应该得到较大的SSGR，因为强制合并不同regime）
+SSGR_0 <- ComputeSSGR(
+  test_data$X,
+  test_data$t_grid,
+  break_points = c()
+)
+
+# 情况2：真实断点
+SSGR_true <- ComputeSSGR(
+  test_data$X,
+  test_data$t_grid,
+  break_points = test_data$true_breaks
+)
+
+# 情况3：错误断点
+SSGR_wrong <- ComputeSSGR(
+  test_data$X,
+  test_data$t_grid,
+  break_points = c(100, 150)
+)
+
+cat("SSGR比较:\n")
+cat(sprintf("  无断点: %.4f\n", SSGR_0))
+cat(sprintf("  真实断点: %.4f\n", SSGR_true))
+cat(sprintf("  错误断点: %.4f\n", SSGR_wrong))
+cat(sprintf(
+  "\n改善率: %.2f%%\n",
+  (SSGR_0 - SSGR_true) / SSGR_0 * 100
+))
+```
+
+## SSGR可视化：网格搜索
+
+```{r ssgr-grid-search, fig.height=6}
+#' 单断点情况的SSGR曲线
+if (test_data$params$M0 == 1) {
+  # 网格搜索
+  T <- nrow(test_data$X)
+  epsilon <- 0.15 # trimming参数
+  search_grid <- seq(floor(T * epsilon), floor(T * (1 - epsilon)), by = 2)
+
+  cat("网格搜索单断点SSGR...\n")
+  SSGR_values <- sapply(search_grid, function(k) {
+    ComputeSSGR(test_data$X, test_data$t_grid, break_points = k)
+  })
+
+  df_ssgr <- data.frame(
+    break_position = search_grid,
+    SSGR = SSGR_values,
+    is_true = search_grid == test_data$true_breaks[1]
+  )
+
+  p_ssgr <- ggplot(df_ssgr, aes(x = break_position, y = SSGR)) +
+    geom_line(color = "blue", size = 1) +
+    geom_point(
+      data = df_ssgr[df_ssgr$is_true, ],
+      aes(x = break_position, y = SSGR),
+      color = "red", size = 4, shape = 21, fill = "red"
+    ) +
+    geom_vline(
+      xintercept = test_data$true_breaks[1],
+      linetype = "dashed", color = "red"
+    ) +
+    labs(
+      title = "SSGR作为断点位置的函数",
+      subtitle = "红点标记真实断点位置",
+      x = "候选断点位置",
+      y = "SSGR"
+    ) +
+    theme_minimal(base_size = 12)
+
+  print(p_ssgr)
+}
+```
+
+---
+
+# 算法4：二元分割主算法
+
+## 理论说明
+
+二元分割算法通过递归分割来识别多个断点：
+
+1. 在当前活跃segment中搜索最优分割点
+2. 若SSGR改善超过阈值，接受该分割
+3. 递归应用于子segments
+4. 直到无显著改善或达到最大断点数
+
+## R实现
+
+```{r algorithm4}
+#' 算法4：二元分割算法
+#'
+#' @param X 数据矩阵
+#' @param t_grid 时间网格
+#' @param epsilon trimming参数
+#' @param M_max 最大断点数
+#' @param threshold 接受断点的阈值（SSGR改善的最小值）
+#' @param u_grid 频率网格
+#' @param verbose 是否打印中间信息
+#' @return 列表，包含检测到的断点、断点数、最终SSGR
+BinarySegmentation <- function(X, t_grid, epsilon = 0.15, M_max = 5,
+                               threshold = NULL,
+                               u_grid = seq(-5, 5, length.out = 50),
+                               verbose = TRUE) {
+  T <- nrow(X)
+
+  # 如果未指定阈值，使用启发式规则
+  if (is.null(threshold)) {
+    # 启发式阈值：基于样本量的SSGR变化
+    threshold <- log(T)
+  }
+
+  # 初始化
+  active_segments <- list(c(1, T)) # 活跃segment列表
+  detected_breaks <- c() # 检测到的断点
+  M <- 0 # 当前断点数
+  SSGR_current <- ComputeSSGR(X, t_grid,
+    break_points = detected_breaks,
+    u_grid = u_grid
+  )
+
+  if (verbose) {
+    cat("========== 二元分割算法开始 ==========\n")
+    cat(sprintf("阈值设置: %.4f\n", threshold))
+    cat(sprintf("初始SSGR (无断点): %.4f\n\n", SSGR_current))
+  }
+
+  iteration <- 1
+
+  while (M < M_max && length(active_segments) > 0) {
+    if (verbose) {
+      cat(sprintf("\n--- 迭代 %d ---\n", iteration))
+      cat(sprintf(
+        "当前断点数: %d, 活跃segments: %d\n",
+        M, length(active_segments)
+      ))
+    }
+
+    best_improvement <- 0
+    best_break <- -1
+    best_segment_idx <- -1
+
+    # 对每个活跃segment搜索最优断点
+    for (seg_idx in seq_along(active_segments)) {
+      segment <- active_segments[[seg_idx]]
+      seg_start <- segment[1]
+      seg_end <- segment[2]
+      seg_length <- seg_end - seg_start + 1
+
+      # 跳过过短的segment
+      if (seg_length < 2 * ceiling(T * epsilon)) {
+        if (verbose) {
+          cat(sprintf("  Segment [%d, %d] 过短，跳过\n", seg_start, seg_end))
+        }
+        next
+      }
+
+      # 在segment内搜索最优分割点
+      search_start <- seg_start + ceiling(T * epsilon)
+      search_end <- seg_end - ceiling(T * epsilon)
+
+      if (verbose) {
+        cat(sprintf("  搜索Segment [%d, %d]的分割点...", seg_start, seg_end))
+      }
+
+      for (k in seq(search_start, search_end, by = max(1, seg_length %/% 20))) {
+        # 创建候选断点集
+        temp_breaks <- sort(c(detected_breaks, k))
+
+        # 计算新的SSGR
+        SSGR_new <- ComputeSSGR(X, t_grid,
+          break_points = temp_breaks,
+          u_grid = u_grid
+        )
+
+        # 计算改善
+        improvement <- SSGR_current - SSGR_new
+
+        if (improvement > best_improvement) {
+          best_improvement <- improvement
+          best_break <- k
+          best_segment_idx <- seg_idx
+        }
+      }
+
+      if (verbose) {
+        if (best_improvement > 0) {
+          cat(sprintf(" 找到最优分割, 改善 = %.4f\n", best_improvement))
+        } else {
+          cat(" 无显著改善\n")
+        }
+      }
+    }
+
+    # 判断是否接受新的断点
+    if (best_improvement > threshold) {
+      # 接受该断点
+      detected_breaks <- sort(c(detected_breaks, best_break))
+      M <- M + 1
+      SSGR_current <- SSGR_current - best_improvement
+
+      if (verbose) {
+        cat(sprintf(
+          "\n✓ 接受断点在位置 %d (第 %d 个), 改善 = %.4f\n",
+          best_break, M, best_improvement
+        ))
+        cat(sprintf("  新的SSGR: %.4f\n", SSGR_current))
+      }
+
+      # 更新活跃segments
+      segment <- active_segments[[best_segment_idx]]
+      # 移除当前segment
+      active_segments[[best_segment_idx]] <- NULL
+      # 添加两个新segment
+      if (best_break > segment[1]) {
+        active_segments[[length(active_segments) + 1]] <-
+          c(segment[1], best_break)
+      }
+      if (best_break < segment[2]) {
+        active_segments[[length(active_segments) + 1]] <-
+          c(best_break + 1, segment[2])
+      }
+    } else {
+      if (verbose) {
+        cat(sprintf(
+          "\n✗ 未达到阈值 (最大改善: %.4f < %.4f)，停止\n",
+          best_improvement, threshold
+        ))
+      }
+      break
+    }
+
+    iteration <- iteration + 1
+  }
+
+  if (verbose) {
+    cat("\n========== 二元分割算法结束 ==========\n")
+    cat(sprintf("检测到 %d 个断点:\n", M))
+    if (M > 0) {
+      cat(sprintf("  位置: %s\n", paste(detected_breaks, collapse = ", ")))
+      cat(sprintf(
+        "  分数: %s\n",
+        paste(sprintf("%.3f", detected_breaks / T), collapse = ", ")
+      ))
+    }
+    cat(sprintf("最终SSGR: %.4f\n", SSGR_current))
+  }
+
+  return(list(
+    breaks = detected_breaks,
+    M = M,
+    SSGR = SSGR_current,
+    iterations = iteration - 1
+  ))
+}
+
+# 执行二元分割
+cat("执行二元分割算法...\n")
+result_seg <- BinarySegmentation(
+  test_data$X,
+  test_data$t_grid,
+  epsilon = 0.15,
+  M_max = 5,
+  threshold = NULL,
+  verbose = TRUE
+)
+```
+
+## 算法4结果对比
+
+```{r algorithm4-results}
+cat("\n")
+cat("========== 算法4结果总结 ==========\n")
+cat(sprintf("真实断点数: %d\n", test_data$params$M0))
+cat(sprintf("检测到的断点数: %d\n", result_seg$M))
+
+if (result_seg$M > 0) {
+  cat(sprintf(
+    "\n真实断点位置: %s\n",
+    paste(test_data$true_breaks, collapse = ", ")
+  ))
+  cat(sprintf(
+    "检测到的断点: %s\n",
+    paste(result_seg$breaks, collapse = ", ")
+  ))
+
+  # 计算误差
+  errors <- sapply(test_data$true_breaks, function(tb) {
+    min(abs(tb - result_seg$breaks))
+  })
+
+  cat(sprintf("\n定位误差 (绝对值):\n"))
+  for (i in seq_along(test_data$true_breaks)) {
+    cat(sprintf(
+      "  真实 %d → 检测 %d (误差: %d)\n",
+      test_data$true_breaks[i],
+      result_seg$breaks[which.min(abs(test_data$true_breaks[i] - result_seg$breaks))],
+      errors[i]
+    ))
+  }
+
+  cat(sprintf("\n平均绝对误差 (MAE): %.2f\n", mean(errors)))
+  cat(sprintf("最大误差: %.2f\n", max(errors)))
+  cat(sprintf(
+    "相对误差: %.2f%%\n",
+    mean(errors / test_data$true_breaks) * 100
+  ))
+}
+
+cat(sprintf("\nSSGR改善:\n"))
+cat(sprintf("  初始SSGR (无断点): %.4f\n", ComputeSSGR(test_data$X, test_data$t_grid)))
+cat(sprintf("  最终SSGR (含断点): %.4f\n", result_seg$SSGR))
+cat(sprintf(
+  "  改善比例: %.2f%%\n",
+  (ComputeSSGR(test_data$X, test_data$t_grid) - result_seg$SSGR) /
+    ComputeSSGR(test_data$X, test_data$t_grid) * 100
+))
+
+cat("\n迭代次数:", result_seg$iterations, "\n")
+```
+
+## 二元分割结果可视化
+
+```{r algorithm4-visualization, fig.height=8}
+#' 可视化二元分割结果
+PlotSegmentationResult <- function(data, result) {
+  X <- data$X
+  t_grid <- data$t_grid
+  true_breaks <- data$true_breaks
+  detected_breaks <- result$breaks
+  T <- nrow(X)
+
+  # 准备数据框
+  df <- data.frame(
+    time_point = rep(t_grid, T),
+    value = as.vector(t(X)),
+    curve_idx = rep(1:T, each = length(t_grid))
+  )
+
+  # 添加regime标签（基于检测到的断点）
+  breaks_for_factor <- unique(sort(c(0, detected_breaks, T)))
+  df$detected_regime <- cut(df$curve_idx,
+    breaks = breaks_for_factor,
+    labels = paste(
+      "检测Regime",
+      1:(length(breaks_for_factor) - 1)
+    )
+  )
+
+  # 添加真实regime标签
+  true_breaks_for_factor <- unique(sort(c(0, true_breaks, T)))
+  df$true_regime <- cut(df$curve_idx,
+    breaks = true_breaks_for_factor,
+    labels = paste(
+      "真实Regime",
+      1:(length(true_breaks_for_factor) - 1)
+    )
+  )
+
+  # 绘图1：检测结果
+  p1 <- ggplot(df, aes(
+    x = time_point, y = value,
+    group = curve_idx, color = detected_regime
+  )) +
+    geom_line(alpha = 0.2, size = 0.3) +
+    # 真实断点
+    geom_vline(
+      xintercept = true_breaks / T,
+      color = "red", linetype = "dashed",
+      size = 0.8, alpha = 0.7
+    ) +
+    # 检测到的断点
+    geom_vline(
+      xintercept = detected_breaks / T,
+      color = "blue", linetype = "solid",
+      size = 1.2
+    ) +
+    scale_color_viridis_d(option = "D", alpha = 0.7) +
+    labs(
+      title = "二元分割检测结果",
+      subtitle = "蓝色实线=检测, 红色虚线=真实",
+      x = "时间s ∈ [0,1]",
+      y = "X_t(s)",
+      color = "检测Regime"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(legend.position = "bottom", legend.text = element_text(size = 9))
+
+  # 绘图2：均值函数对比
+  regime_means <- data.frame()
+
+  # 检测到的regimes的均值
+  for (j in 1:(length(detected_breaks) + 1)) {
+    start <- ifelse(j == 1, 1, detected_breaks[j - 1] + 1)
+    end <- ifelse(j == length(detected_breaks) + 1, T, detected_breaks[j])
+
+    mean_vals <- colMeans(X[start:end, , drop = FALSE])
+    regime_means <- rbind(regime_means, data.frame(
+      time_point = t_grid,
+      mean_value = mean_vals,
+      regime = paste("检测Regime", j),
+      type = "检测"
+    ))
+  }
+
+  # 真实regimes的均值
+  for (j in 1:(length(true_breaks) + 1)) {
+    start <- ifelse(j == 1, 1, true_breaks[j - 1] + 1)
+    end <- ifelse(j == length(true_breaks) + 1, T, true_breaks[j])
+
+    mean_vals <- colMeans(X[start:end, , drop = FALSE])
+    regime_means <- rbind(regime_means, data.frame(
+      time_point = t_grid,
+      mean_value = mean_vals,
+      regime = paste("真实Regime", j),
+      type = "真实"
+    ))
+  }
+
+  p2 <- ggplot(regime_means, aes(
+    x = time_point, y = mean_value,
+    color = type, linetype = regime
+  )) +
+    geom_line(size = 1.2) +
+    scale_color_manual(values = c("检测" = "blue", "真实" = "red")) +
+    scale_linetype_manual(values = rep(c("solid", "dashed"),
+      length.out = length(unique(regime_means$regime))
+    )) +
+    labs(
+      title = "各Regime均值函数对比",
+      x = "时间 s ∈ [0,1]",
+      y = "均值函数",
+      color = "来源",
+      linetype = "Regime"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(
+      legend.position = "bottom",
+      legend.text = element_text(size = 9)
+    )
+
+  grid.arrange(p1, p2, ncol = 1, heights = c(1, 1))
+}
+
+PlotSegmentationResult(test_data, result_seg)
+```
+
+---
+
+# 算法6：序贯检验确定断点数 (Sequential Testing Procedure)
+
+```{r,algorithm6}
+#' 算法6.1：Bootstrap临界值计算
+#'
+#' @description 使用Moving Block Bootstrap计算给定显著性水平下的临界值
+#'
+#' @param X 函数型数据矩阵 (T × grid_size)
+#' @param t_grid 时间网格向量
+#' @param current_breaks 当前已检测到的断点位置向量
+#' @param alpha 显著性水平
+#' @param B Bootstrap重复次数
+#' @param l_block Block长度（NULL则自动选择）
+#' @param u_grid 频率网格
+#' @param epsilon trimming参数
+#' @param verbose 是否打印进度
+#'
+#' @return 临界值（标量）
+BootstrapCriticalValue <- function(X,
+                                   t_grid,
+                                   current_breaks = c(),
+                                   alpha = 0.05,
+                                   B = 200,
+                                   l_block = NULL,
+                                   u_grid = seq(-5, 5, length.out = 50),
+                                   epsilon = 0.15,
+                                   verbose = TRUE) {
+  T <- nrow(X)
+  grid_size <- ncol(X)
+
+  # 1. 自动选择Block长度（Politis-White规则）
+  if (is.null(l_block)) {
+    # 基于T^(1/3)的启发式规则
+    l_block <- max(5, floor(T^(1 / 3)))
+    if (verbose) {
+      cat(sprintf("自动选择Block长度: l = %d\n", l_block))
+    }
+  }
+
+  # 2. 确保Block长度合理
+  l_block <- min(l_block, floor(T / 5))
+  l_block <- max(l_block, 3)
+
+  if (verbose) {
+    cat(sprintf("执行Moving Block Bootstrap (B = %d, l = %d)...\n", B, l_block))
+  }
+
+  # 3. 初始化存储Bootstrap统计量的向量
+  boot_statistics <- numeric(B)
+
+  # 4. 计算原始数据在当前断点下的SSGR（基准）
+  SSGR_current <- ComputeSSGR(X, t_grid,
+    break_points = current_breaks,
+    u_grid = u_grid
+  )
+
+  # 5. Bootstrap循环
+  for (b in 1:B) {
+    if (verbose && b %% 50 == 0) {
+      cat(sprintf(
+        "  Bootstrap进度: %d/%d (%.1f%%)\r",
+        b, B, b / B * 100
+      ))
+    }
+
+    # 5.1 生成Bootstrap样本
+    X_boot <- matrix(0, nrow = T, ncol = grid_size)
+    num_blocks <- ceiling(T / l_block)
+
+    for (i in 1:num_blocks) {
+      # 随机抽取Block起始位置
+      start_idx <- sample(1:(T - l_block + 1), 1)
+      block_data <- X[start_idx:(start_idx + l_block - 1), , drop = FALSE]
+
+      # 插入到Bootstrap样本中
+      insert_start <- (i - 1) * l_block + 1
+      insert_end <- min(i * l_block, T)
+      block_length <- insert_end - insert_start + 1
+
+      X_boot[insert_start:insert_end, ] <- block_data[1:block_length, , drop = FALSE]
+    }
+
+    # 5.2 在Bootstrap样本上计算测试统计量
+    if (length(current_breaks) == 0) {
+      # 情况A：测试第一个断点
+      # 需要搜索所有可能的单断点位置
+      search_range <- seq(floor(T * epsilon),
+        floor(T * (1 - epsilon)),
+        by = max(1, floor(T / 30))
+      )
+
+      SSGR_boot_no_break <- ComputeSSGR(X_boot, t_grid,
+        break_points = c(),
+        u_grid = u_grid
+      )
+
+      max_improvement <- 0
+      for (k in search_range) {
+        SSGR_boot_with_break <- ComputeSSGR(X_boot, t_grid,
+          break_points = k,
+          u_grid = u_grid
+        )
+        improvement <- SSGR_boot_no_break - SSGR_boot_with_break
+        if (improvement > max_improvement) {
+          max_improvement <- improvement
+        }
+      }
+
+      boot_statistics[b] <- max_improvement
+    } else {
+      # 情况B：已有断点，测试是否需要添加新断点
+      SSGR_boot_M <- ComputeSSGR(X_boot, t_grid,
+        break_points = current_breaks,
+        u_grid = u_grid
+      )
+
+      # 在每个现有segment中搜索潜在的新断点
+      segments <- GetSegmentBounds(current_breaks, T)
+      best_improvement <- 0
+
+      for (seg_idx in 1:nrow(segments)) {
+        seg_start <- segments[seg_idx, 1]
+        seg_end <- segments[seg_idx, 2]
+        seg_length <- seg_end - seg_start + 1
+
+        # 跳过太短的segment
+        # 这里所谓的太短是指1倍的T
+        if (seg_length < 2 * ceiling(T * epsilon)) {
+          next
+        }
+
+        # 搜索该segment内的最优分割点
+        search_start <- seg_start + ceiling(T * epsilon)
+        search_end <- seg_end - ceiling(T * epsilon)
+        search_range <- seq(search_start, search_end,
+          by = max(1, seg_length %/% 15)
+        )
+
+        for (k in search_range) {
+          temp_breaks <- sort(c(current_breaks, k))
+          SSGR_boot_temp <- ComputeSSGR(X_boot, t_grid,
+            break_points = temp_breaks,
+            u_grid = u_grid
+          )
+          improvement <- SSGR_boot_M - SSGR_boot_temp
+
+          if (improvement > best_improvement) {
+            best_improvement <- improvement
+          }
+        }
+      }
+
+      boot_statistics[b] <- best_improvement
+    }
+  }
+
+  if (verbose) {
+    cat(sprintf("\nBootstrap完成，计算临界值...\n"))
+  }
+
+  # 6. 计算(1-alpha)分位数作为临界值
+  critical_value <- quantile(boot_statistics,
+    probs = 1 - alpha,
+    na.rm = TRUE, type = 8
+  )
+
+  if (verbose) {
+    cat(sprintf(
+      "显著性水平 α = %.3f 的临界值: %.4f\n",
+      alpha, critical_value
+    ))
+    cat(sprintf(
+      "Bootstrap统计量范围: [%.4f, %.4f]\n",
+      min(boot_statistics, na.rm = TRUE),
+      max(boot_statistics, na.rm = TRUE)
+    ))
+  }
+
+  return(as.numeric(critical_value))
+}
+
+
+#' 辅助函数：获取Segment边界
+#'
+#' @param breaks 断点向量
+#' @param T 总样本量
+#' @return 矩阵，每行为(start, end)
+GetSegmentBounds <- function(breaks, T) {
+  if (length(breaks) == 0) {
+    return(matrix(c(1, T), nrow = 1))
+  }
+
+  breaks_extended <- c(0, breaks, T)
+  n_segments <- length(breaks_extended) - 1
+
+  segments <- matrix(0, nrow = n_segments, ncol = 2)
+  for (i in 1:n_segments) {
+    segments[i, 1] <- breaks_extended[i] + 1
+    segments[i, 2] <- breaks_extended[i + 1]
+  }
+
+  return(segments)
+}
+
+
+#' 算法6.2：序贯检验主函数
+#'
+#' @description 通过序贯假设检验确定断点数量
+#'
+#' @param X 函数型数据矩阵
+#' @param t_grid 时间网格
+#' @param M_max 最大允许的断点数
+#' @param alpha 每次测试的显著性水平
+#' @param B Bootstrap重复次数
+#' @param epsilon trimming参数
+#' @param u_grid 频率网格
+#' @param l_block Block长度
+#' @param bonferroni 是否使用Bonferroni修正
+#' @param verbose 详细输出
+#'
+#' @return 列表，包含检测到的断点、断点数、测试历史
+SequentialTest <- function(X,
+                           t_grid,
+                           M_max = 5,
+                           alpha = 0.05,
+                           B = 200,
+                           epsilon = 0.15,
+                           u_grid = seq(-5, 5, length.out = 50),
+                           l_block = NULL,
+                           bonferroni = FALSE,
+                           verbose = TRUE) {
+  T <- nrow(X)
+
+  if (verbose) {
+    cat("==================================================\n")
+    cat("序贯检验确定断点数\n")
+    cat("==================================================\n")
+    cat(sprintf("样本量: T = %d\n", T))
+    cat(sprintf("最大断点数: M_max = %d\n", M_max))
+    cat(sprintf("显著性水平: α = %.3f\n", alpha))
+    if (bonferroni) {
+      cat(sprintf(
+        "使用Bonferroni修正: α_adj = α/(M_max+1) = %.4f\n",
+        alpha / (M_max + 1)
+      ))
+    }
+    cat(sprintf("Bootstrap次数: B = %d\n", B))
+    cat("==================================================\n\n")
+  }
+
+  # 调整显著性水平（如果使用Bonferroni修正）
+  if (bonferroni) {
+    alpha_adjusted <- alpha / (M_max + 1)
+  } else {
+    alpha_adjusted <- alpha
+  }
+
+  # 初始化
+  M <- 0 # 当前断点数
+  current_breaks <- c() # 当前断点集合
+  continue_testing <- TRUE # 是否继续测试
+  test_history <- list() # 测试历史
+
+  # 序贯检验循环
+  while (M < M_max && continue_testing) {
+    iteration <- M + 1
+
+    if (verbose) {
+      cat(sprintf("\n========== 测试第 %d 个断点 ==========\n", iteration))
+    }
+
+    # Step 1: 计算当前模型的SSGR（H0：M个断点）
+    SSGR_M <- ComputeSSGR(X, t_grid,
+      break_points = current_breaks,
+      u_grid = u_grid
+    )
+
+    if (verbose) {
+      cat(sprintf("H0 (M = %d): SSGR = %.4f\n", M, SSGR_M))
+    }
+
+    # Step 2: 搜索第(M+1)个断点的最优位置
+    if (verbose) {
+      cat("搜索候选断点位置...\n")
+    }
+
+    segments <- GetSegmentBounds(current_breaks, T)
+    best_improvement <- 0
+    candidate_break <- -1
+    candidate_segment <- -1
+
+    for (seg_idx in 1:nrow(segments)) {
+      seg_start <- segments[seg_idx, 1]
+      seg_end <- segments[seg_idx, 2]
+      seg_length <- seg_end - seg_start + 1
+
+      # 检查segment是否足够长
+      min_seg_length <- 2 * ceiling(T * epsilon)
+      if (seg_length < min_seg_length) {
+        if (verbose) {
+          cat(sprintf(
+            "  Segment [%d, %d] 长度不足 (%d < %d)，跳过\n",
+            seg_start, seg_end, seg_length, min_seg_length
+          ))
+        }
+        next
+      }
+
+      if (verbose) {
+        cat(sprintf("  搜索Segment [%d, %d]...", seg_start, seg_end))
+      }
+
+      # 定义搜索范围
+      search_start <- seg_start + ceiling(T * epsilon)
+      search_end <- seg_end - ceiling(T * epsilon)
+
+      # 使用粗网格搜索
+      search_grid <- seq(search_start, search_end,
+        by = max(1, floor(seg_length / 20))
+      )
+
+      # 在该segment内搜索
+      for (k in search_grid) {
+        temp_breaks <- sort(c(current_breaks, k))
+        SSGR_temp <- ComputeSSGR(X, t_grid,
+          break_points = temp_breaks,
+          u_grid = u_grid
+        )
+        improvement <- SSGR_M - SSGR_temp
+
+        if (improvement > best_improvement) {
+          best_improvement <- improvement
+          candidate_break <- k
+          candidate_segment <- seg_idx
+        }
+      }
+
+      if (verbose) {
+        if (candidate_segment == seg_idx && best_improvement > 0) {
+          cat(sprintf(
+            " 找到候选 k=%d, 改善=%.4f\n",
+            candidate_break, best_improvement
+          ))
+        } else {
+          cat(" 无改善\n")
+        }
+      }
+    }
+
+    # Step 3: 计算测试统计量
+    F_test <- best_improvement
+
+    if (verbose) {
+      cat(sprintf("\n测试统计量: F = %.4f\n", F_test))
+      cat(sprintf(
+        "候选断点位置: %d (分数: %.3f)\n",
+        candidate_break, candidate_break / T
+      ))
+    }
+
+    # Step 4: 计算Bootstrap临界值
+    if (verbose) {
+      cat("\n计算Bootstrap临界值...\n")
+    }
+
+    critical_value <- BootstrapCriticalValue(
+      X = X,
+      t_grid = t_grid,
+      current_breaks = current_breaks,
+      alpha = alpha_adjusted,
+      B = B,
+      l_block = l_block,
+      u_grid = u_grid,
+      epsilon = epsilon,
+      verbose = verbose
+    )
+
+    # Step 5: 假设检验决策
+    reject_H0 <- (F_test > critical_value)
+    p_value_approx <- mean(rnorm(1000, mean = 0, sd = sd(F_test)) > F_test)
+
+    if (verbose) {
+      cat("\n========== 检验结果 ==========\n")
+      cat(sprintf("测试统计量: %.4f\n", F_test))
+      cat(sprintf("临界值 (α=%.3f): %.4f\n", alpha_adjusted, critical_value))
+      cat(sprintf("近似p值: %.4f\n", p_value_approx))
+      cat(sprintf(
+        "决策: %s\n",
+        ifelse(reject_H0, "拒绝H0 → 添加断点", "无法拒绝H0 → 停止")
+      ))
+      cat("==============================\n")
+    }
+
+    # 记录测试历史
+    test_history[[iteration]] <- list(
+      iteration = iteration,
+      M = M,
+      candidate_break = candidate_break,
+      F_statistic = F_test,
+      critical_value = critical_value,
+      reject = reject_H0,
+      SSGR_before = SSGR_M,
+      SSGR_after = ifelse(reject_H0, SSGR_M - F_test, SSGR_M)
+    )
+
+    # Step 6: 更新状态
+    if (reject_H0) {
+      # 拒绝H0，添加新断点
+      current_breaks <- sort(c(current_breaks, candidate_break))
+      M <- M + 1
+
+      if (verbose) {
+        cat(sprintf("\n✓ 接受第 %d 个断点在位置 %d\n", M, candidate_break))
+        cat(sprintf(
+          "当前断点集合: %s\n",
+          paste(current_breaks, collapse = ", ")
+        ))
+      }
+    } else {
+      # 无法拒绝H0，停止序贯检验
+      continue_testing <- FALSE
+
+      if (verbose) {
+        cat("\n✗ 未检测到额外断点，序贯检验终止\n")
+      }
+    }
+  }
+
+  # 最终输出
+  if (verbose) {
+    cat("\n")
+    cat("==================================================\n")
+    cat("序贯检验完成\n")
+    cat("==================================================\n")
+    cat(sprintf("检测到的断点数: M = %d\n", M))
+    if (M > 0) {
+      cat(sprintf("断点位置: %s\n", paste(current_breaks, collapse = ", ")))
+      cat(sprintf(
+        "断点分数: %s\n",
+        paste(sprintf("%.3f", current_breaks / T), collapse = ", ")
+      ))
+    } else {
+      cat("未检测到显著断点\n")
+    }
+    cat("==================================================\n\n")
+  }
+
+  # 返回结果
+  return(list(
+    M = M,
+    breaks = current_breaks,
+    break_fractions = current_breaks / T,
+    test_history = test_history,
+    final_SSGR = ComputeSSGR(X, t_grid,
+      break_points = current_breaks,
+      u_grid = u_grid
+    ),
+    parameters = list(
+      M_max = M_max,
+      alpha = alpha,
+      alpha_adjusted = alpha_adjusted,
+      B = B,
+      epsilon = epsilon,
+      bonferroni = bonferroni
+    )
+  ))
+}
+
+
+#' 算法6.3：可视化序贯检验结果
+#'
+#' @param data 原始数据对象（来自GenerateFunctionalData）
+#' @param result 序贯检验结果对象（来自SequentialTest）
+#'
+#' @return ggplot对象列表
+PlotSequentialTestResults <- function(data, result) {
+  require(ggplot2)
+  require(gridExtra)
+
+  # 提取数据
+  X <- data$X
+  t_grid <- data$t_grid
+  true_breaks <- data$true_breaks
+  detected_breaks <- result$breaks
+  test_history <- result$test_history
+  T <- nrow(X)
+
+  # ========== 图1：测试统计量序列 ==========
+  if (length(test_history) > 0) {
+    history_df <- data.frame(
+      iteration = sapply(test_history, function(x) x$iteration),
+      F_statistic = sapply(test_history, function(x) x$F_statistic),
+      critical_value = sapply(test_history, function(x) x$critical_value),
+      reject = sapply(test_history, function(x) x$reject)
+    )
+
+    p1 <- ggplot(history_df, aes(x = iteration)) +
+      geom_line(aes(y = F_statistic, color = "测试统计量"),
+        size = 1.2
+      ) +
+      geom_point(aes(y = F_statistic, shape = reject, color = "测试统计量"),
+        size = 4
+      ) +
+      geom_line(aes(y = critical_value, color = "临界值"),
+        linetype = "dashed", size = 1
+      ) +
+      scale_color_manual(
+        values = c("测试统计量" = "blue", "临界值" = "red")
+      ) +
+      scale_shape_manual(
+        values = c("TRUE" = 16, "FALSE" = 4),
+        labels = c("拒绝H0", "接受H0"),
+        name = "决策"
+      ) +
+      labs(
+        title = "序贯检验统计量轨迹",
+        subtitle = "实心点=拒绝H0，叉号=接受H0",
+        x = "迭代次数",
+        y = "统计量值",
+        color = ""
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "bottom")
+  } else {
+    p1 <- ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = "未执行任何测试", size = 6
+      ) +
+      theme_void()
+  }
+
+  # ========== 图2：SSGR改善 ==========
+  if (length(test_history) > 0) {
+    ssgr_df <- data.frame(
+      iteration = sapply(test_history, function(x) x$iteration),
+      SSGR = sapply(test_history, function(x) x$SSGR_after),
+      improvement = sapply(test_history, function(x) {
+        x$SSGR_before - x$SSGR_after
+      })
+    )
+
+    p2 <- ggplot(ssgr_df, aes(x = iteration)) +
+      geom_line(aes(y = SSGR, color = "SSGR"), size = 1.2) +
+      geom_point(aes(y = SSGR), size = 3, color = "blue") +
+      geom_bar(aes(y = improvement, fill = "改善量"),
+        stat = "identity", alpha = 0.5, width = 0.4
+      ) +
+      scale_color_manual(values = c("SSGR" = "blue")) +
+      scale_fill_manual(values = c("改善量" = "green")) +
+      labs(
+        title = "SSGR演化与改善",
+        x = "迭代次数",
+        y = "SSGR值",
+        color = "",
+        fill = ""
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "bottom")
+  } else {
+    p2 <- ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = "无改善数据", size = 6
+      ) +
+      theme_void()
+  }
+
+  # ========== 图3：检测结果与真实断点对比 ==========
+  df_curves <- data.frame(
+    time_point = rep(t_grid, T),
+    value = as.vector(t(X)),
+    curve_idx = rep(1:T, each = length(t_grid))
+  )
+
+  # 添加检测到的regime标签
+  if (length(detected_breaks) > 0) {
+    breaks_for_cut <- c(0, detected_breaks, T)
+    df_curves$detected_regime <- cut(
+      df_curves$curve_idx,
+      breaks = breaks_for_cut,
+      labels = paste("Regime", 1:(length(detected_breaks) + 1))
+    )
+  } else {
+    df_curves$detected_regime <- "单一Regime"
+  }
+
+  p3 <- ggplot(df_curves, aes(
+    x = time_point, y = value,
+    group = curve_idx,
+    color = detected_regime
+  )) +
+    geom_line(alpha = 0.2, size = 0.3) +
+    geom_vline(
+      xintercept = true_breaks / T,
+      color = "red", linetype = "dashed",
+      size = 1, alpha = 0.8
+    ) +
+    geom_vline(
+      xintercept = detected_breaks / T,
+      color = "blue", linetype = "solid",
+      size = 1.2
+    ) +
+    scale_color_viridis_d(option = "D") +
+    labs(
+      title = "检测结果叠加原始数据",
+      subtitle = "红色虚线=真实断点，蓝色实线=检测断点",
+      x = "时间 s ∈ [0,1]",
+      y = "X_t(s)",
+      color = "检测Regime"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "bottom")
+
+  # ========== 图4：断点位置对比 ==========
+  comparison_df <- data.frame(
+    position = c(true_breaks, detected_breaks),
+    type = c(
+      rep("真实", length(true_breaks)),
+      rep("检测", length(detected_breaks))
+    ),
+    label = c(
+      paste("真实", 1:length(true_breaks)),
+      paste("检测", 1:length(detected_breaks))
+    )
+  )
+
+  p4 <- ggplot(comparison_df, aes(x = position, y = type, color = type)) +
+    geom_point(size = 5, shape = 18) +
+    geom_text(aes(label = position), vjust = -1, size = 3) +
+    scale_color_manual(values = c("真实" = "red", "检测" = "blue")) +
+    xlim(0, T) +
+    labs(
+      title = "断点位置对比",
+      x = "位置索引",
+      y = "",
+      color = "类型"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      legend.position = "none",
+      axis.text.y = element_text(size = 12, face = "bold")
+    )
+
+  # 组合所有图形
+  grid.arrange(
+    p1, p2, p3, p4,
+    ncol = 2,
+    heights = c(1, 1),
+    top = "序贯检验完整诊断图"
+  )
+
+  return(invisible(list(p1 = p1, p2 = p2, p3 = p3, p4 = p4)))
+}
+
+
+#' 算法6.4：性能评估函数
+#'
+#' @param true_breaks 真实断点向量
+#' @param detected_breaks 检测到的断点向量
+#' @param T 样本量
+#' @param tolerance 容忍误差（认为正确检测的最大距离）
+#'
+#' @return 性能指标列表
+EvaluatePerformance <- function(true_breaks, detected_breaks,
+                                T, tolerance = 5) {
+  M_true <- length(true_breaks)
+  M_detected <- length(detected_breaks)
+
+  # 1. 数量准确性
+  correct_number <- (M_true == M_detected)
+
+  # 2. Hausdorff距离
+  if (M_true > 0 && M_detected > 0) {
+    hausdorff_dist <- max(
+      max(sapply(true_breaks, function(tb) min(abs(tb - detected_breaks)))),
+      max(sapply(detected_breaks, function(db) min(abs(db - true_breaks))))
+    )
+  } else if (M_true == 0 && M_detected == 0) {
+    hausdorff_dist <- 0
+  } else {
+    hausdorff_dist <- Inf
+  }
+
+  # 3. 正确检测率
+  if (M_true > 0) {
+    correctly_detected <- sum(sapply(true_breaks, function(tb) {
+      any(abs(tb - detected_breaks) <= tolerance)
+    }))
+    detection_rate <- correctly_detected / M_true
+  } else {
+    detection_rate <- ifelse(M_detected == 0, 1, 0)
+  }
+
+  # 4. 过度检测率
+  if (M_detected > 0) {
+    false_positives <- sum(sapply(detected_breaks, function(db) {
+      !any(abs(db - true_breaks) <= tolerance)
+    }))
+    false_positive_rate <- false_positives / M_detected
+  } else {
+    false_positive_rate <- 0
+  }
+
+  # 5. 平均定位误差
+  if (M_true > 0 && M_detected > 0) {
+    location_errors <- sapply(true_breaks, function(tb) {
+      min(abs(tb - detected_breaks))
+    })
+    mean_location_error <- mean(location_errors)
+    max_location_error <- max(location_errors)
+  } else {
+    mean_location_error <- NA
+    max_location_error <- NA
+  }
+
+  # 汇总结果
+  metrics <- list(
+    M_true = M_true,
+    M_detected = M_detected,
+    correct_number = correct_number,
+    hausdorff_distance = hausdorff_dist,
+    detection_rate = detection_rate,
+    false_positive_rate = false_positive_rate,
+    mean_location_error = mean_location_error,
+    max_location_error = max_location_error,
+    tolerance = tolerance
+  )
+
+  return(metrics)
+}
+
+
+# 1. 生成测试数据（使用之前的函数）
+
+# 2. 执行序贯检验
+cat("\n开始序贯检验...\n")
+result_seq <- SequentialTest(
+  X = test_data$X,
+  t_grid = test_data$t_grid,
+  M_max = 5,
+  alpha = 0.05,
+  B = 200, # 为了演示速度，使用较少的Bootstrap次数
+  epsilon = 0.15,
+  u_grid = seq(-5, 5, length.out = 50),
+  l_block = NULL,
+  bonferroni = FALSE,
+  verbose = TRUE
+)
+
+# 3. 评估性能
+cat("\n性能评估...\n")
+performance <- EvaluatePerformance(
+  true_breaks = test_data$true_breaks,
+  detected_breaks = result_seq$breaks,
+  T = nrow(test_data$X),
+  tolerance = 5
+)
+
+cat("\n========== 性能指标 ==========\n")
+cat(sprintf("真实断点数: %d\n", performance$M_true))
+cat(sprintf("检测断点数: %d\n", performance$M_detected))
+cat(sprintf(
+  "数量是否正确: %s\n",
+  ifelse(performance$correct_number, "是", "否")
+))
+cat(sprintf("Hausdorff距离: %.2f\n", performance$hausdorff_distance))
+cat(sprintf("检测率: %.1f%%\n", performance$detection_rate * 100))
+cat(sprintf("误报率: %.1f%%\n", performance$false_positive_rate * 100))
+if (!is.na(performance$mean_location_error)) {
+  cat(sprintf("平均定位误差: %.2f\n", performance$mean_location_error))
+  cat(sprintf("最大定位误差: %.2f\n", performance$max_location_error))
+}
+cat("==============================\n")
+
+# 4. 可视化结果
+cat("\n绘制诊断图...\n")
+PlotSequentialTestResults(test_data, result_seq)
+```

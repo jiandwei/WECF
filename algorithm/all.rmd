@@ -15,7 +15,7 @@ output:
   pdf_document:
     toc: true
     number_sections: true
-bibliography: references.bib
+bibliography: ./references.bib
 ---
 
 ```{r setup, include=FALSE}
@@ -25,11 +25,15 @@ knitr::opts_chunk$set(
   message = FALSE,
   fig.width = 10,
   fig.height = 6,
-  cache = TRUE
+  cache = FALSE
 )
 ```
 
 # 理论背景与方法概述
+
+
+## 潜在的问题
+样本的数量太少了，那么此方法就没有办法准确的识别出来其中的数据结构断点。
 
 ## 研究动机
 
@@ -72,7 +76,7 @@ library(tidyr)
 
 # 设置全局参数
 options(digits = 6)
-set.seed(20231215)
+# set.seed(20231215)
 
 # 注册并行后端
 n_cores <- max(1, detectCores() - 1)
@@ -285,10 +289,10 @@ GenerateFunctionalData <- compiler::cmpfun(GenerateFunctionalData)
 ```{r test_algorithm1, fig.height=8}
 # 生成测试数据
 test_data <- GenerateFunctionalData(
-  TT = 1500,
-  grid_size = 128,
+  TT = 1000,
+  grid_size = 200,
   M0 = 3,
-  break_type = "mean",
+  break_type = "distribution",
   rho = 0.7,
   sigma_nu = 0.1
 )
@@ -3906,25 +3910,25 @@ PlotCompleteResults <- function(data_obj, report) {
       theme_void()
   }
 
-  # 图4: 计算时间
-  df_timing <- data.frame(
-    Phase = names(report$timing),
-    Time = unlist(report$timing)
-  )
+  # # 图4: 计算时间
+  # df_timing <- data.frame(
+  #   Phase = names(report$timing),
+  #   Time = unlist(report$timing)
+  # )
 
-  p4 <- ggplot(df_timing, aes(x = reorder(Phase, Time), y = Time, fill = Phase)) +
-    geom_col(alpha = 0.7) +
-    geom_text(aes(label = sprintf("%.2fs", Time)), hjust = -0.2) +
-    coord_flip() +
-    scale_fill_brewer(palette = "Dark2") +
-    theme_minimal() +
-    labs(title = "各阶段计算时间", x = "", y = "时间 (秒)") +
-    theme(legend.position = "none")
+  # p4 <- ggplot(df_timing, aes(x = reorder(Phase, Time), y = Time, fill = Phase)) +
+  #   geom_col(alpha = 0.7) +
+  #   geom_text(aes(label = sprintf("%.2fs", Time)), hjust = -0.2) +
+  #   coord_flip() +
+  #   scale_fill_brewer(palette = "Dark2") +
+  #   theme_minimal() +
+  #   labs(title = "各阶段计算时间", x = "", y = "时间 (秒)") +
+  #   theme(legend.position = "none")
 
-  # 组合图形
-  grid.arrange(p1, p2, p3, p4,
-    layout_matrix = rbind(c(1, 1), c(2, 3), c(4, 4))
-  )
+  # # 组合图形
+  # grid.arrange(p1, p2, p3, p4,
+  #   layout_matrix = rbind(c(1, 1), c(2, 3), c(4, 4))
+  # )
 }
 
 PlotCompleteResults(test_data, complete_result)
@@ -3953,7 +3957,7 @@ cat(sprintf("Hausdorff距离: %.1f\n", eval_perf$hausdorff_dist))
 
 # 蒙特卡洛模拟：有限样本性质评估
 
-```{r mc_simulation_setup}
+```{r mc_simulation_setup,eval=FALSE}
 #' @title 蒙特卡洛模拟框架
 #' @description 评估断点检测方法的有限样本性质
 #' @param scenarios 实验场景列表
@@ -3969,7 +3973,7 @@ MonteCarloSimulation <- function(scenarios,
                                  parallel = TRUE,
                                  seed = 20231215,
                                  verbose = TRUE) {
-  set.seed(seed)
+  # set.seed(seed)
   n_scenarios <- length(scenarios)
 
   if (verbose) {
@@ -4168,13 +4172,13 @@ MonteCarloSimulation <- compiler::cmpfun(MonteCarloSimulation)
 
 ## 实验设计
 
-```{r mc_experiment_design}
+```{r mc_experiment_design,eval=FALSE}
 # 定义实验场景
 scenarios <- list(
   # 场景1：基准情况（中等样本，均值断点）
   Baseline_Mean = list(
     TT = 200,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 2,
     break_type = "mean",
     rho = 0,
@@ -4185,7 +4189,7 @@ scenarios <- list(
   # 场景2：小样本
   SmallSample_Mean = list(
     TT = 100,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 1,
     break_type = "mean",
     rho = 0,
@@ -4196,7 +4200,7 @@ scenarios <- list(
   # 场景3：大样本
   LargeSample_Mean = list(
     TT = 500,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 3,
     break_type = "mean",
     rho = 0,
@@ -4207,7 +4211,7 @@ scenarios <- list(
   # 场景4：方差断点
   Baseline_Variance = list(
     TT = 200,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 2,
     break_type = "variance",
     rho = 0,
@@ -4218,7 +4222,7 @@ scenarios <- list(
   # 场景5：时间相关性
   Dependent = list(
     TT = 200,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 2,
     break_type = "mean",
     rho = 0.5,
@@ -4229,7 +4233,7 @@ scenarios <- list(
   # 场景6：高噪声
   HighNoise = list(
     TT = 200,
-    grid_size = 64,
+    grid_size = 100,
     M0 = 2,
     break_type = "mean",
     rho = 0,
@@ -4255,7 +4259,7 @@ cat("\n========================================\n")
 
 ## 执行模拟
 
-```{r mc_run_simulation, cache=TRUE}
+```{r mc_run_simulation, cache=TRUE,eval=FALSE,eval=FALSE}
 # 运行蒙特卡洛模拟
 # 注意：这将花费较长时间，建议使用并行计算
 mc_results <- MonteCarloSimulation(
@@ -4263,7 +4267,7 @@ mc_results <- MonteCarloSimulation(
   n_replications = 200, # 可根据需要调整
   methods = c("binary_seg", "bic", "sequential"),
   parallel = TRUE,
-  seed = 20231215,
+  seed = null,
   verbose = TRUE
 )
 
@@ -4274,7 +4278,7 @@ cat("\n结果已保存至 mc_simulation_results.rds\n")
 
 ## 结果分析与可视化
 
-```{r mc_analysis, fig.height=14}
+```{r mc_analysis, fig.height=14,eval=FALSE}
 #' @title 分析蒙特卡洛结果
 AnalyzeMCResults <- function(mc_results) {
   # 计算汇总统计量
@@ -4438,7 +4442,7 @@ grid.arrange(p_M_accuracy, p_hausdorff, p_pr, p_time,
 
 ## Size和Power分析
 
-```{r mc_size_power, fig.height=8}
+```{r mc_size_power, fig.height=8,eval=FALSE}
 # Size：在H0下（无断点）拒绝的概率
 # Power：在H1下（有断点）正确拒绝的概率
 
@@ -4459,7 +4463,7 @@ SizePowerSimulation <- function(n_rep = 300, alpha = 0.05) {
   ) %dopar% {
     data_h0 <- GenerateFunctionalData(
       TT = 200,
-      grid_size = 64,
+      grid_size = 100,
       M0 = 0, # 无断点
       break_type = "mean",
       rho = 0,
@@ -4509,7 +4513,7 @@ SizePowerSimulation <- function(n_rep = 300, alpha = 0.05) {
       # 生成有断点的数据，调整信噪比
       data_h1 <- GenerateFunctionalData(
         TT = 200,
-        grid_size = 64,
+        grid_size = 100,
         M0 = 1,
         break_type = "mean",
         rho = 0,
