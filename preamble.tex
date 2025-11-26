@@ -1,86 +1,119 @@
-% ==================== 基础包 ====================
-\usepackage{amsmath,amsfonts,amssymb,amsthm}
-\usepackage{mathtools}
-\usepackage[colorinlistoftodos]{todonotes}
-% \usepackage{fontspec} % LuaLaTeX 字体支持
-\usepackage{ctex}
+% ==============================================================================
+%                                   PACKAGES
+% ==============================================================================
+
+% -------------------- Page Layout & Typography --------------------
+\usepackage[margin=2cm]{geometry} % Page margins
+\usepackage{setspace}             % Line spacing
+\onehalfspacing                   % Set 1.5 line spacing
+
+% -------------------- Fonts & Encoding --------------------
+\usepackage{fontspec}             % LuaLaTeX font support
+\setmainfont{Times New Roman}     % Main document font
+
+% -------------------- Mathematics --------------------
+\usepackage{amsmath,amsfonts,amssymb,amsthm} % Core math packages
+\usepackage{mathtools}                       % Mathematical tools
+
+% -------------------- Algorithms --------------------
 \usepackage{algorithm}
 \usepackage{algorithmicx}
 \usepackage{algpseudocode}
-% ==================== 页面设置 ====================
-\usepackage[margin=2cm]{geometry}
-\usepackage{setspace}
-\onehalfspacing
 
-% ==================== 字体设置 ====================
-% 英文字体
-\setmainfont{Times New Roman}
-% % 中文字体 - Noto Serif SC（思源宋体，LuaLaTeX 支持可变字体）
-% \newfontfamily\CJKmainfont{Noto Serif SC}
-% \newfontfamily\CJKsansfont{Noto Sans SC}
-% \newfontfamily\CJKmonofont{Noto Sans SC}
-% % 设置默认 CJK 字体
-% \setmainfont{Noto Serif SC}[Script=CJK]
+% -------------------- Graphics & Tables --------------------
+\usepackage{graphicx}    % Image support
+\usepackage{float}       % Float positioning
+\usepackage{caption}     % Caption customization
+\usepackage{subcaption}  % Subfigures
+\usepackage{booktabs}    % Professional tables
+\usepackage{multirow}    % Multi-row cells
+\usepackage{array}       % Extended array options
 
-% ==================== 图表支持 ====================
-\usepackage{graphicx}
-\usepackage{float}
-\usepackage{caption}
-\usepackage{subcaption}
-\usepackage{booktabs}
-\usepackage{multirow}
-\usepackage{array}
+% -------------------- Utilities --------------------
+\usepackage{xcolor}                     % Color support
+\usepackage[colorinlistoftodos]{todonotes} % Todo notes
 
-% ==================== 颜色和链接 ====================
-\usepackage{xcolor}
+% -------------------- Bibliography --------------------
+\usepackage[style=science,backend=biber,sorting=nyt]{biblatex}
+\addbibresource{references/references.bib}
+
+% -------------------- Hyperlinks & References --------------------
 \usepackage[colorlinks=true,
     linkcolor=blue,
     citecolor=green,
     urlcolor=red]{hyperref}
 
-% 智能交叉引用（cleveref）
-\usepackage[nameinlink]{cleveref}
+\usepackage[nameinlink]{cleveref} % Intelligent cross-referencing
 
-% cleveref 的中文名称映射（用于 \cref/\Cref）
-\crefname{theorem}{定理}{定理}
-\Crefname{theorem}{定理}{定理}
-\crefname{lemma}{引理}{引理}
-\Crefname{lemma}{引理}{引理}
-\crefname{proposition}{命题}{命题}
-\crefname{corollary}{推论}{推论}
-\crefname{definition}{定义}{定义}
-\crefname{assumption}{假设}{假设}
-\crefname{remark}{注记}{注记}
-\crefname{example}{示例}{示例}
+% ==============================================================================
+%                               CONFIGURATION
+% ==============================================================================
 
-% ==================== 参考文献 ====================
-\usepackage[style=science,backend=biber,sorting=nyt]{biblatex}
-\addbibresource{references/references.bib}
+% -------------------- Cleveref Settings --------------------
+\crefname{theorem}{Theorem}{Theorems}
+\Crefname{theorem}{Theorem}{Theorems}
+\crefname{lemma}{Lemma}{Lemmas}
+\Crefname{lemma}{Lemma}{Lemmas}
+\crefname{proposition}{Proposition}{Propositions}
+\crefname{corollary}{Corollary}{Corollaries}
+\crefname{definition}{Definition}{Definitions}
+\crefname{assumption}{Assumption}{Assumptions}
+\crefname{remark}{Remark}{Remarks}
+\crefname{example}{Example}{Examples}
 
-% ==================== 定理环境（中文化） ====================
-\newtheorem{theorem}{定理}[section]
-\newtheorem{lemma}{引理}[subsection]
-\newtheorem{proposition}[theorem]{命题}
-\newtheorem{corollary}[theorem]{推论}
+% -------------------- Theorem Environments --------------------
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}{Lemma}[subsection]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
 \theoremstyle{definition}
-\newtheorem{definition}[theorem]{定义}
-\newtheorem{assumption}[theorem]{假设}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+
 \theoremstyle{remark}
-\newtheorem{remark}{注记}
-\newtheorem{example}[theorem]{示例}
+\newtheorem{remark}{Remark}
+\newtheorem{example}[theorem]{Example}
 
-% 证明标题本地化
-\renewcommand{\proofname}{证明}
+% -------------------- Custom Commands (Todo Notes) --------------------
+% Red - Unsure: Uncertainty or doubt
+\newcommand{\unsure}[1]{%
+\todo[inline, linecolor=red, backgroundcolor=red!20, bordercolor=red]{%
+\textbf{? [Unsure]} #1%
+}%
+}
 
-% =================一些包的设置（中文 todonote）=====================
-\newcommand{\unsure}[1]{\todo[inline,linecolor=red,backgroundcolor=red!20,bordercolor=red]{\textbf{[待确认]} #1}}
-% 蓝色 - 用于需要修改的内容
-\newcommand{\change}[1]{\todo[inline,linecolor=blue,backgroundcolor=blue!20,bordercolor=blue]{\textbf{[需修改]} #1}}
-% 绿色 - 用于补充信息、说明
-\newcommand{\info}[1]{\todo[inline,linecolor=green,backgroundcolor=green!20,bordercolor=green]{\textbf{[补充说明]} #1}}
-% 橙色 - 用于改进建议
-\newcommand{\improvement}[1]{\todo[inline,linecolor=orange,backgroundcolor=orange!20,bordercolor=orange]{\textbf{[改进建议]} #1}}
-% 紫色 - 用于疑问
-\newcommand{\question}[1]{\todo[inline,linecolor=purple,backgroundcolor=purple!20,bordercolor=purple]{\textbf{[疑问]} #1}}
-% 灰色 - 用于完成状态
-\newcommand{\done}[1]{\todo[inline,linecolor=gray,backgroundcolor=gray!20,bordercolor=gray]{\textbf{[已完成]} #1}}
+% Blue - Change: Modification required
+\newcommand{\change}[1]{%
+    \todo[inline, linecolor=blue, backgroundcolor=blue!20, bordercolor=blue]{%
+        \textbf{$\Delta$ [Change]} #1%
+    }%
+}
+
+% Green - Info: Information or note
+\newcommand{\info}[1]{%
+    \todo[inline, linecolor=green, backgroundcolor=green!20, bordercolor=green]{%
+        \textbf{i [Info]} #1%
+    }%
+}
+
+% Orange - Suggestion: Improvement proposal
+\newcommand{\improvement}[1]{%
+    \todo[inline, linecolor=orange, backgroundcolor=orange!20, bordercolor=orange]{%
+        \textbf{$\star$ [Suggestion]} #1%
+    }%
+}
+
+% Purple - Question: Query for authors
+\newcommand{\question}[1]{%
+\todo[inline, linecolor=purple, backgroundcolor=purple!20, bordercolor=purple]{%
+\textbf{? [Question]} #1%
+}%
+}
+
+% Gray - Done: Completed task
+\newcommand{\done}[1]{%
+    \todo[inline, linecolor=gray, backgroundcolor=gray!20, bordercolor=gray]{%
+        \textbf{$\checkmark$ [Done]} #1%
+    }%
+}
