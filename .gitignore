@@ -334,3 +334,4 @@ main.pdf
 *.bin
 *.bootstrap
 */*_cache/*
+/.roo

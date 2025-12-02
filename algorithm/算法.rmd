@@ -5,12 +5,15 @@ date: "`r Sys.Date()`"
 output:
   html_document:
     toc: true
-    toc_float: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
     toc_depth: 3
     code_folding: hide
     theme: cosmo
     highlight: tango
     number_sections: true
+    df_print: paged
   pdf_document:
     toc: true
     number_sections: true
@@ -19,24 +22,23 @@ bibliography: references.bib
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = TRUE,
+  echo = FALSE,
   warning = FALSE,
   message = FALSE,
   fig.width = 10,
   fig.height = 6,
-  cache = TRUE
+  cache = FALSE
 )
 ```
 
 # 引言
 
-本文档实现了融合Boniece et al. (2025)和Fu et al. (2023)思想的函数型数据结构断点检测方法的前四个核心算法：
+本文档实现了融合[@boniece_changepoint_2023]和[@fu_multiple_2023]思想的函数型数据结构断点检测方法的前四个核心算法：
 
 1. **算法1**：函数型数据生成（含结构断点）
 2. **算法2**：经验特征函数（ECF）计算
 3. **算法3**：平方广义残差和（SSGR）计算
-4. **算法4**：二元分割主算法
-5. **算法6**：序贯检验
+4. **算法6**：序贯检验
 
 ## 理论背景
 
@@ -56,6 +58,11 @@ $$e^{iu\int X_t(s)ds} = \phi_t(u) + \varepsilon_t(u)$$
 断点估计通过最小化以下目标函数：
 
 $$\text{SSGR}_M = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_{\mathbb{R}} \left|e^{iu\int X_t(s)ds} - \tilde{\phi}_j(u)\right|^2 W(u)du$$
+
+这里 $W(u)$一般设定成为正态权重函数：
+\[
+W(u) = \frac{1}{\sqrt{2\pi b}} e^{-\frac{u^2}{2b}}
+\]
 
 ## 依赖包加载
 
@@ -82,7 +89,7 @@ library(doParallel)
 # set.seed(42)
 ```
 
----
+
 
 # 算法1：函数型数据生成
 
@@ -156,74 +163,77 @@ GenerateFunctionalData <- function(T = 200,
   if (break_type == "mean") {
     # 均值函数断点
     cat("  生成均值函数断点...\n")
-
-    # Regime 1: 均值为0
-    for (t in 1:true_breaks[1]) {
-      # AR(1)过程
-      if (t == 1) {
-        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
-      } else {
-        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
-          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
+    
+    # 定义各regime的均值偏移
+    mean_shifts <- c(0, 2, -1, 1.5, -0.5, 0.8)  # 支持最多6个regime
+    
+    # 扩展断点边界
+    breaks_extended <- c(0, true_breaks, T)
+    
+    # 对每个regime生成数据
+    for (j in 1:(M0 + 1)) {
+      start_t <- breaks_extended[j] + 1
+      end_t <- breaks_extended[j + 1]
+      
+      for (t in start_t:end_t) {
+        if (t == start_t) {
+          coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
+          coef_matrix[t, 1] <- coef_matrix[t, 1] + mean_shifts[j]
+        } else {
+          coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
+            sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
+          coef_matrix[t, 1] <- coef_matrix[t, 1] + mean_shifts[j]
+        }
       }
     }
-
-    # Regime 2: 均值为2（在第一个基函数上）
-    for (t in (true_breaks[1] + 1):true_breaks[2]) {
-      if (t == true_breaks[1] + 1) {
-        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
-        coef_matrix[t, 1] <- coef_matrix[t, 1] + 2
-      } else {
-        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
-          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
-        coef_matrix[t, 1] <- coef_matrix[t, 1] + 2
-      }
-    }
-
-    # Regime 3: 均值为-1
-    for (t in (true_breaks[2] + 1):T) {
-      if (t == true_breaks[2] + 1) {
-        coef_matrix[t, ] <- rnorm(nbasis, 0, sqrt(eigenvalues))
-        coef_matrix[t, 1] <- coef_matrix[t, 1] - 1
-      } else {
-        coef_matrix[t, ] <- rho * coef_matrix[t - 1, ] +
-          sqrt(1 - rho^2) * rnorm(nbasis, 0, sqrt(eigenvalues))
-        coef_matrix[t, 1] <- coef_matrix[t, 1] - 1
-      }
-    }
+    
   } else if (break_type == "variance") {
     # 方差断点
     cat("  生成方差断点...\n")
-
-    # Regime 1: 方差 = 1
-    coef_matrix[1:true_breaks[1], ] <-
-      mvrnorm(true_breaks[1], rep(0, nbasis), diag(eigenvalues))
-
-    # Regime 2: 方差 = 4
-    coef_matrix[(true_breaks[1] + 1):true_breaks[2], ] <-
-      mvrnorm(true_breaks[2] - true_breaks[1], rep(0, nbasis), diag(4 * eigenvalues))
-
-    # Regime 3: 方差 = 0.5
-    coef_matrix[(true_breaks[2] + 1):T, ] <-
-      mvrnorm(T - true_breaks[2], rep(0, nbasis), diag(0.5 * eigenvalues))
+    
+    # 定义各regime的方差倍数
+    variance_multipliers <- c(1, 4, 0.5, 2, 0.8, 1.5)
+    
+    # 扩展断点边界
+    breaks_extended <- c(0, true_breaks, T)
+    
+    # 对每个regime生成数据
+    for (j in 1:(M0 + 1)) {
+      start_t <- breaks_extended[j] + 1
+      end_t <- breaks_extended[j + 1]
+      n_obs <- end_t - start_t + 1
+      
+      coef_matrix[start_t:end_t, ] <-
+        mvrnorm(n_obs, rep(0, nbasis), diag(variance_multipliers[j] * eigenvalues))
+    }
+    
   } else if (break_type == "distribution") {
     # 分布形状断点（改变特征值结构）
     cat("  生成分布形状断点...\n")
-
-    # Regime 1: 标准特征值
-    lambda1 <- eigenvalues
-    coef_matrix[1:true_breaks[1], ] <-
-      mvrnorm(true_breaks[1], rep(0, nbasis), diag(lambda1))
-
-    # Regime 2: 快速衰减
-    lambda2 <- exp(-(0:(nbasis - 1)))
-    coef_matrix[(true_breaks[1] + 1):true_breaks[2], ] <-
-      mvrnorm(true_breaks[2] - true_breaks[1], rep(0, nbasis), diag(lambda2))
-
-    # Regime 3: 慢速衰减
-    lambda3 <- 1 / (1 + (0:(nbasis - 1)))
-    coef_matrix[(true_breaks[2] + 1):T, ] <-
-      mvrnorm(T - true_breaks[2], rep(0, nbasis), diag(lambda3))
+    
+    # 定义不同的特征值衰减模式
+    lambda_patterns <- list(
+      function(k) exp(-k / 2),           # 标准衰减
+      function(k) exp(-k),                # 快速衰减
+      function(k) 1 / (1 + k),           # 慢速衰减
+      function(k) exp(-k / 3),           # 中等衰减
+      function(k) 1 / (1 + k^2),         # 超慢衰减
+      function(k) exp(-k / 1.5)          # 较快衰减
+    )
+    
+    # 扩展断点边界
+    breaks_extended <- c(0, true_breaks, T)
+    
+    # 对每个regime生成数据
+    for (j in 1:(M0 + 1)) {
+      start_t <- breaks_extended[j] + 1
+      end_t <- breaks_extended[j + 1]
+      n_obs <- end_t - start_t + 1
+      
+      lambda_j <- sapply(0:(nbasis - 1), lambda_patterns[[j]])
+      coef_matrix[start_t:end_t, ] <-
+        mvrnorm(n_obs, rep(0, nbasis), diag(lambda_j))
+    }
   }
 
   # 7. 转换为函数型对象
@@ -261,11 +271,11 @@ GenerateFunctionalData <- function(T = 200,
 
 # 测试函数
 test_data <- GenerateFunctionalData(
-  T = 300,
+  T = 500,
   grid_size = 64,
-  M0 = 2,
-  break_type = "mean",
-  rho = 0.9,
+  M0 = 3,
+  break_type = "distribution",
+  rho = 0.1,
   sigma_nu = 0.1
 )
 
@@ -359,7 +369,7 @@ PlotFunctionalData <- function(data, max_curves = 50) {
 PlotFunctionalData(test_data)
 ```
 
----
+
 
 # 算法2：经验特征函数（ECF）计算
 
@@ -417,10 +427,19 @@ ComputeECF <- function(X, t_grid, start, end, u, weights = NULL) {
 #' @param parallel 是否并行计算
 #' @return 复数向量，每个元素对应一个频率
 ComputeECFGrid <- function(X, t_grid, start, end, u_grid, parallel = FALSE) {
+  # 强制评估参数，避免并行计算时的Lazy Evaluation问题
+  force(X)
+  force(t_grid)
+  force(start)
+  force(end)
+
   if (parallel) {
     # 并行计算
+    # 注意：频繁创建销毁集群开销大，建议在外部控制
     cl <- makeCluster(detectCores() - 1)
-    clusterExport(cl, c("ComputeECF"), envir = environment())
+    
+    # 导出函数和数据
+    clusterExport(cl, c("ComputeECF", "X", "t_grid", "start", "end"), envir = environment())
 
     ecf_values <- parSapply(cl, u_grid, function(u) {
       ComputeECF(X, t_grid, start, end, u)
@@ -454,7 +473,7 @@ cat(sprintf(
 cat(sprintf("|ECF| = %.4f\n", Mod(ecf_test)))
 
 # 绘制ECF在频率域的行为
-u_grid <- seq(-5, 5, length.out = 100)
+u_grid <- seq(-10,10, length.out = 100)
 ecf_full <- ComputeECFGrid(
   test_data$X,
   test_data$t_grid,
@@ -489,7 +508,7 @@ p_ecf <- ggplot(df_ecf) +
 print(p_ecf)
 ```
 
----
+
 
 # 算法3：平方广义残差和（SSGR）计算
 
@@ -499,7 +518,7 @@ print(p_ecf)
 
 $$\text{SSGR}_M = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_{\mathbb{R}} \left|e^{iu\int X_t(s)ds} - \tilde{\phi}_j(u)\right|^2 W(u)du$$
 
-我们使用正态权重函数：$W(u) = (2\pi b)^{-1/2} e^{-u^2/(2b)}$
+我们使用正态权重函数：$$W(u) = (2\pi b)^{-\frac{1}{2}} e^{-\frac{u^2}{2b}}$$
 
 ## R实现
 
@@ -514,7 +533,7 @@ $$\text{SSGR}_M = \sum_{j=1}^{M+1} \sum_{t=T_{j-1}+1}^{T_j} \int_{\mathbb{R}} \l
 #' @param parallel 是否并行
 #' @return SSGR数值
 ComputeSSGR <- function(X, t_grid, break_points = c(),
-                        u_grid = seq(-5, 5, length.out = 50),
+                        u_grid = seq(-10,10, length.out = 50),
                         b = 1, parallel = FALSE) {
   T <- nrow(X)
   M <- length(break_points)
@@ -536,7 +555,7 @@ ComputeSSGR <- function(X, t_grid, break_points = c(),
     end <- T_bounds[j + 1]
 
     # 计算该segment的ECF
-    phi_j <- ComputeECFGrid(X, t_grid, start, end, u_grid, parallel = FALSE)
+    phi_j <- ComputeECFGrid(X, t_grid, start, end, u_grid, parallel = parallel)
 
     # 计算每个观测的贡献
     for (t in start:end) {
@@ -609,7 +628,7 @@ cat(sprintf(
 if (test_data$params$M0 == 1) {
   # 网格搜索
   T <- nrow(test_data$X)
-  epsilon <- 0.15 # trimming参数
+  epsilon <- 0.10 # trimming参数
   search_grid <- seq(floor(T * epsilon), floor(T * (1 - epsilon)), by = 2)
 
   cat("网格搜索单断点SSGR...\n")
@@ -646,7 +665,7 @@ if (test_data$params$M0 == 1) {
 }
 ```
 
----
+
 
 
 # 算法6：序贯检验确定断点数
@@ -678,7 +697,7 @@ $$
 3. 通过Bootstrap获得临界值。
 4. 若$F > c_{\alpha}$，则拒绝原假设，增加断点；否则停止。
 
----
+
 
 ## R实现
 
@@ -704,7 +723,7 @@ BootstrapCriticalValue <- function(X,
                                    alpha = 0.05,
                                    B = 100,
                                    l_block = NULL,
-                                   u_grid = seq(-5, 5, length.out = 50),
+                                   u_grid = seq(-10,10, length.out = 50),
                                    epsilon = 0.15,
                                    verbose = TRUE) {
   T <- nrow(X)
@@ -898,6 +917,7 @@ GetSegmentBounds <- function(breaks, T) {
 #' @param u_grid 频率网格
 #' @param l_block Block长度
 #' @param bonferroni 是否使用Bonferroni修正
+#' @param fixed_M 固定断点数量（若不为NULL，则强制寻找指定数量的断点，不进行假设检验）
 #' @param verbose 详细输出
 #'
 #' @return 列表，包含检测到的断点、断点数、测试历史
@@ -907,26 +927,36 @@ SequentialTest <- function(X,
                            alpha = 0.05,
                            B = 100,
                            epsilon = 0.15,
-                           u_grid = seq(-5, 5, length.out = 50),
+                           u_grid = seq(-10,10, length.out = 50),
                            l_block = NULL,
                            bonferroni = FALSE,
+                           fixed_M = NULL,
                            verbose = TRUE) {
   T <- nrow(X)
+
+  # 如果指定了fixed_M，则覆盖M_max
+  if (!is.null(fixed_M)) {
+    M_max <- fixed_M
+  }
 
   if (verbose) {
     cat("==================================================\n")
     cat("序贯检验确定断点数\n")
     cat("==================================================\n")
     cat(sprintf("样本量: T = %d\n", T))
-    cat(sprintf("最大断点数: M_max = %d\n", M_max))
-    cat(sprintf("显著性水平: α = %.3f\n", alpha))
-    if (bonferroni) {
-      cat(sprintf(
-        "使用Bonferroni修正: α_adj = α/(M_max+1) = %.4f\n",
-        alpha / (M_max + 1)
-      ))
+    if (!is.null(fixed_M)) {
+      cat(sprintf("模式: 固定断点数量 (M = %d)\n", fixed_M))
+    } else {
+      cat(sprintf("最大断点数: M_max = %d\n", M_max))
+      cat(sprintf("显著性水平: α = %.3f\n", alpha))
+      if (bonferroni) {
+        cat(sprintf(
+          "使用Bonferroni修正: α_adj = α/(M_max+1) = %.4f\n",
+          alpha / (M_max + 1)
+        ))
+      }
+      cat(sprintf("Bootstrap次数: B = %d\n", B))
     }
-    cat(sprintf("Bootstrap次数: B = %d\n", B))
     cat("==================================================\n\n")
   }
 
@@ -1041,35 +1071,54 @@ SequentialTest <- function(X,
     }
 
     # Step 4: 计算Bootstrap临界值
-    if (verbose) {
-      cat("\n计算Bootstrap临界值...\n")
+    if (is.null(fixed_M)) {
+      if (verbose) {
+        cat("\n计算Bootstrap临界值...\n")
+      }
+
+      critical_value <- BootstrapCriticalValue(
+        X = X,
+        t_grid = t_grid,
+        current_breaks = current_breaks,
+        alpha = alpha_adjusted,
+        B = B,
+        l_block = l_block,
+        u_grid = u_grid,
+        epsilon = epsilon,
+        verbose = verbose
+      )
+
+      # Step 5: 假设检验决策
+      reject_H0 <- (F_test > critical_value)
+      # 修正p值计算:基于Bootstrap分布估计
+      if (exists("boot_statistics") && length(boot_statistics) > 0) {
+        p_value_approx <- mean(boot_statistics >= F_test)
+      } else {
+        p_value_approx <- NA
+      }
+    } else {
+      # 固定断点数量模式：跳过Bootstrap，直接接受
+      if (verbose) {
+        cat("\n固定断点数量模式：跳过Bootstrap检验，直接接受候选断点\n")
+      }
+      critical_value <- NA
+      reject_H0 <- TRUE
+      p_value_approx <- NA
     }
-
-    critical_value <- BootstrapCriticalValue(
-      X = X,
-      t_grid = t_grid,
-      current_breaks = current_breaks,
-      alpha = alpha_adjusted,
-      B = B,
-      l_block = l_block,
-      u_grid = u_grid,
-      epsilon = epsilon,
-      verbose = verbose
-    )
-
-    # Step 5: 假设检验决策
-    reject_H0 <- (F_test > critical_value)
-    p_value_approx <- mean(rnorm(1000, mean = 0, sd = sd(F_test)) > F_test)
 
     if (verbose) {
       cat("\n========== 检验结果 ==========\n")
       cat(sprintf("测试统计量: %.4f\n", F_test))
-      cat(sprintf("临界值 (α=%.3f): %.4f\n", alpha_adjusted, critical_value))
-      cat(sprintf("近似p值: %.4f\n", p_value_approx))
-      cat(sprintf(
-        "决策: %s\n",
-        ifelse(reject_H0, "拒绝H0 → 添加断点", "无法拒绝H0 → 停止")
-      ))
+      if (is.null(fixed_M)) {
+        cat(sprintf("临界值 (α=%.3f): %.4f\n", alpha_adjusted, critical_value))
+        cat(sprintf("近似p值: %.4f\n", p_value_approx))
+        cat(sprintf(
+          "决策: %s\n",
+          ifelse(reject_H0, "拒绝H0 → 添加断点", "无法拒绝H0 → 停止")
+        ))
+      } else {
+        cat("决策: 强制添加断点 (Fixed M)\n")
+      }
       cat("==============================\n")
     }
 
@@ -1092,7 +1141,7 @@ SequentialTest <- function(X,
       M <- M + 1
 
       if (verbose) {
-        cat(sprintf("\n 接受第 %d 个断点在位置 %d\n", M, candidate_break))
+        cat(sprintf("\n✓ 接受第 %d 个断点在位置 %d\n", M, candidate_break))
         cat(sprintf(
           "当前断点集合: %s\n",
           paste(current_breaks, collapse = ", ")
@@ -1103,7 +1152,7 @@ SequentialTest <- function(X,
       continue_testing <- FALSE
 
       if (verbose) {
-        cat("\n 未检测到额外断点，序贯检验终止\n")
+        cat("\n✗ 未检测到额外断点，序贯检验终止\n")
       }
     }
   }
@@ -1416,17 +1465,18 @@ EvaluatePerformance <- function(true_breaks, detected_breaks,
 # 1. 生成测试数据（使用之前的函数）
 
 # 2. 执行序贯检验
-cat("\n开始序贯检验...\n")
+cat("\n开始序贯检验 (固定断点数量模式)...\n")
 result_seq <- SequentialTest(
   X = test_data$X,
   t_grid = test_data$t_grid,
   M_max = 5,
   alpha = 0.05,
-  B = 200, # 为了演示速度，使用较少的Bootstrap次数
+  B = 100, # 在固定M模式下此参数无效
   epsilon = 0.15,
-  u_grid = seq(-5, 5, length.out = 50),
+  u_grid = seq(-10,10, length.out = 50),
   l_block = NULL,
   bonferroni = FALSE,
+  fixed_M = test_data$params$M0, # 使用真实断点数量
   verbose = TRUE
 )
 
@@ -1455,12 +1505,362 @@ if (!is.na(performance$mean_location_error)) {
 cat("==============================\n")
 ```
 
----
 
+
+
+# ECF残差分析与可视化
+
+## 理论说明
+
+ECF残差定义为观测值的经验特征函数与对应segment的平均经验特征函数之差：
+
+$$\varepsilon_t(u) = e^{iu\int X_t(s)ds} - \tilde{\phi}_{j(t)}(u)$$
+
+其中 $j(t)$ 表示时刻 $t$ 所属的regime。残差的大小反映了：
+- 数据与模型的拟合程度
+- 断点位置的准确性
+- 不同regime之间的差异
+
+## R实现
+
+```{r ecf-residuals-computation}
+#' 计算ECF残差
+#'
+#' @param X 函数型数据矩阵 (T × grid_size)
+#' @param t_grid 时间网格
+#' @param break_points 断点位置向量
+#' @param u_grid 频率网格
+#' @return 列表，包含残差矩阵和相关信息
+ComputeECFResiduals <- function(X, t_grid, break_points = c(),
+                                u_grid = seq(-10,10, length.out = 50)) {
+  T <- nrow(X)
+  M <- length(break_points)
+  n_u <- length(u_grid)
+  
+  # 构建时间段
+  T_bounds <- c(0, break_points, T)
+  
+  # 初始化残差矩阵 (T × n_u)
+  residuals <- matrix(0, nrow = T, ncol = n_u)
+  
+  # 计算梯形权重
+  dt <- diff(t_grid)
+  weights <- c(dt[1] / 2, (dt[-length(dt)] + dt[-1]) / 2, dt[length(dt)] / 2)
+  
+  # 对每个segment计算
+  for (j in 1:(M + 1)) {
+    start <- T_bounds[j] + 1
+    end <- T_bounds[j + 1]
+    
+    # 计算该segment的ECF
+    X_segment <- X[start:end, , drop = FALSE]
+    integrals_segment <- X_segment %*% weights
+    
+    # 对每个频率计算ECF
+    phi_j <- sapply(u_grid, function(u) {
+      complex_values <- exp(1i * u * integrals_segment)
+      mean(complex_values)
+    })
+    
+    # 计算该segment内每个观测的残差
+    for (t in start:end) {
+      X_t <- X[t, , drop = FALSE]
+      integral <- as.numeric(X_t %*% weights)
+      
+      # 计算 exp(i u ∫X_t)
+      exp_values <- exp(1i * u_grid * integral)
+      
+      # 广义残差（取模）
+      epsilon <- Mod(exp_values - phi_j)
+      
+      residuals[t, ] <- epsilon
+    }
+  }
+  
+  return(list(
+    residuals = residuals,
+    u_grid = u_grid,
+    break_points = break_points,
+    T_bounds = T_bounds
+  ))
+}
+
+# 使用真实断点计算残差
+cat("使用真实断点计算ECF残差...\n")
+residuals_true <- ComputeECFResiduals(
+  X = test_data$X,
+  t_grid = test_data$t_grid,
+  break_points = test_data$true_breaks,
+  u_grid = seq(-10,10, length.out = 50)
+)
+
+cat(sprintf("残差矩阵维度: %d × %d\n", 
+            nrow(residuals_true$residuals), 
+            ncol(residuals_true$residuals)))
+cat(sprintf("平均残差: %.4f\n", mean(residuals_true$residuals)))
+cat(sprintf("残差标准差: %.4f\n", sd(residuals_true$residuals)))
+```
+
+## 可视化：ECF残差与原始数据对比
+
+```{r ecf-residuals-visualization, fig.height=10}
+#' 可视化ECF残差与原始数据的对比
+PlotECFResidualsComparison <- function(data, residual_result, max_curves = 30) {
+  X <- data$X
+  t_grid <- data$t_grid
+  true_breaks <- data$true_breaks
+  T <- nrow(X)
+  grid_size <- ncol(X)
+  
+  residuals <- residual_result$residuals
+  u_grid <- residual_result$u_grid
+  break_points <- residual_result$break_points
+  
+  # 随机抽取部分曲线
+  if (T > max_curves) {
+    idx_sample <- sort(sample(1:T, max_curves))
+  } else {
+    idx_sample <- 1:T
+  }
+  
+  # ========== 图1：原始函数型数据 ==========
+  df_original <- data.frame(
+    s = rep(t_grid, length(idx_sample)),
+    value = as.vector(t(X[idx_sample, ])),
+    curve_id = rep(idx_sample, each = grid_size)
+  )
+  
+  df_original$regime <- cut(
+    df_original$curve_id,
+    breaks = c(0, true_breaks, T),
+    labels = paste("Regime", 1:(length(true_breaks) + 1))
+  )
+  
+  p1 <- ggplot(df_original, aes(x = s, y = value, group = curve_id, color = regime)) +
+    geom_line(alpha = 0.4, size = 0.5) +
+    geom_vline(xintercept = true_breaks / T, linetype = "dashed", 
+               color = "red", size = 1, alpha = 0.8) +
+    scale_color_viridis_d(option = "D") +
+    labs(
+      title = "原始函数型数据 X_t(s)",
+      subtitle = sprintf("真实断点: %s", paste(true_breaks, collapse = ", ")),
+      x = "时间点 s ∈ [0,1]",
+      y = "X_t(s)",
+      color = "Regime"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(legend.position = "bottom")
+  
+  # ========== 图2：ECF残差热图 ==========
+  df_residuals <- expand.grid(
+    t = 1:T,
+    u_idx = 1:length(u_grid)
+  )
+  df_residuals$u <- u_grid[df_residuals$u_idx]
+  df_residuals$residual <- as.vector(residuals)
+  
+  p2 <- ggplot(df_residuals, aes(x = t, y = u, fill = residual)) +
+    geom_tile() +
+    geom_vline(xintercept = true_breaks, linetype = "dashed", 
+               color = "red", size = 1, alpha = 0.8) +
+    geom_vline(xintercept = break_points, linetype = "solid", 
+               color = "white", size = 1.2, alpha = 0.9) +
+    scale_fill_viridis_c(option = "magma") +
+    labs(
+      title = "ECF残差热图 |exp(iu∫X_t) - φ_j(u)|",
+      subtitle = sprintf("使用断点: %s (红色虚线=真实, 白色实线=使用)",
+                        ifelse(length(break_points) > 0, 
+                              paste(break_points, collapse = ", "), 
+                              "无")),
+      x = "时间索引 t",
+      y = "频率 u",
+      fill = "残差模"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(legend.position = "right")
+  
+  # ========== 图3：频率域平均残差 ==========
+  mean_residuals_by_u <- colMeans(residuals)
+  
+  df_mean_residuals_u <- data.frame(
+    u = u_grid,
+    mean_residual = mean_residuals_by_u
+  )
+  
+  p3 <- ggplot(df_mean_residuals_u, aes(x = u, y = mean_residual)) +
+    geom_line(color = "blue", size = 1.2) +
+    geom_point(color = "darkblue", size = 2, alpha = 0.6) +
+    labs(
+      title = "频率域平均ECF残差",
+      subtitle = "平均: E_t[|exp(iu∫X_t) - φ_j(u)|]",
+      x = "频率 u",
+      y = "平均残差"
+    ) +
+    theme_minimal(base_size = 11)
+  
+  # ========== 图4：时间域平均残差 ==========
+  mean_residuals_by_t <- rowMeans(residuals)
+  
+  df_mean_residuals_t <- data.frame(
+    t = 1:T,
+    mean_residual = mean_residuals_by_t
+  )
+  
+  df_mean_residuals_t$regime <- cut(
+    df_mean_residuals_t$t,
+    breaks = c(0, true_breaks, T),
+    labels = paste("Regime", 1:(length(true_breaks) + 1))
+  )
+  
+  p4 <- ggplot(df_mean_residuals_t, aes(x = t, y = mean_residual, color = regime)) +
+    geom_line(size = 1.2) +
+    geom_vline(xintercept = true_breaks, linetype = "dashed", 
+               color = "red", size = 1, alpha = 0.8) +
+    geom_vline(xintercept = break_points, linetype = "solid", 
+               color = "black", size = 1.2, alpha = 0.9) +
+    scale_color_viridis_d(option = "D") +
+    labs(
+      title = "时间域平均ECF残差",
+      subtitle = "平均: E_u[|exp(iu∫X_t) - φ_j(u)|]",
+      x = "时间索引 t",
+      y = "平均残差",
+      color = "Regime"
+    ) +
+    theme_minimal(base_size = 11) +
+    theme(legend.position = "bottom")
+  
+  # 组合所有图形
+  grid.arrange(
+    p1, p2, p3, p4,
+    ncol = 2,
+    nrow = 2,
+    top = "ECF残差与原始数据对比分析"
+  )
+  
+  return(invisible(list(p1 = p1, p2 = p2, p3 = p3, p4 = p4)))
+}
+
+# 生成对比图
+PlotECFResidualsComparison(test_data, residuals_true, max_curves = 30)
+```
+
+## 不同断点配置下的残差对比
+
+```{r residuals-comparison-different-breaks, fig.height=12}
+# 计算不同断点配置下的残差
+cat("\n比较不同断点配置...\n")
+
+# 1. 无断点
+cat("1. 计算无断点情况...\n")
+residuals_no_break <- ComputeECFResiduals(
+  X = test_data$X,
+  t_grid = test_data$t_grid,
+  break_points = c(),
+  u_grid = seq(-10,10, length.out = 50)
+)
+
+# 2. 真实断点
+cat("2. 使用真实断点...\n")
+residuals_true_breaks <- ComputeECFResiduals(
+  X = test_data$X,
+  t_grid = test_data$t_grid,
+  break_points = test_data$true_breaks,
+  u_grid = seq(-10,10, length.out = 50)
+)
+
+# 3. 检测断点
+cat("3. 使用检测断点...\n")
+residuals_detected <- ComputeECFResiduals(
+  X = test_data$X,
+  t_grid = test_data$t_grid,
+  break_points = result_seq$breaks,
+  u_grid = seq(-10,10, length.out = 50)
+)
+
+# 统计对比
+comparison_stats <- data.frame(
+  配置 = c("无断点", "真实断点", "检测断点"),
+  平均残差 = c(
+    mean(residuals_no_break$residuals),
+    mean(residuals_true_breaks$residuals),
+    mean(residuals_detected$residuals)
+  ),
+  残差标准差 = c(
+    sd(residuals_no_break$residuals),
+    sd(residuals_true_breaks$residuals),
+    sd(residuals_detected$residuals)
+  ),
+  最大残差 = c(
+    max(residuals_no_break$residuals),
+    max(residuals_true_breaks$residuals),
+    max(residuals_detected$residuals)
+  )
+)
+
+print(comparison_stats)
+
+# 可视化对比
+T <- nrow(test_data$X)
+df_comparison <- rbind(
+  data.frame(
+    t = 1:T,
+    residual = rowMeans(residuals_no_break$residuals),
+    config = "无断点"
+  ),
+  data.frame(
+    t = 1:T,
+    residual = rowMeans(residuals_true_breaks$residuals),
+    config = "真实断点"
+  ),
+  data.frame(
+    t = 1:T,
+    residual = rowMeans(residuals_detected$residuals),
+    config = "检测断点"
+  )
+)
+
+ggplot(df_comparison, aes(x = t, y = residual, color = config)) +
+  geom_line(size = 1) +
+  geom_vline(xintercept = test_data$true_breaks, 
+             linetype = "dashed", color = "red", alpha = 0.5) +
+  scale_color_manual(values = c("无断点" = "gray", 
+                                 "真实断点" = "blue", 
+                                 "检测断点" = "green")) +
+  labs(
+    title = "不同断点配置下的时间域平均ECF残差对比",
+    subtitle = "红色虚线标记真实断点位置",
+    x = "时间索引 t",
+    y = "平均ECF残差",
+    color = "断点配置"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+
+
+```{r}
+
+```
 # 总结
 
-## 一些问题
+##  一些问题
+
 1. 这里也使用类似[@fu_multiple_2023]的`sup-F`形式的统计量，那么这个也是与[@horvath_change_2025]不同的一个点
 > 那么就需要搞清楚这里面的`sup-F`到底是一个什么东西来了
 2. 怎么将这个加权[@boniece_changepoint_2023]的思想加到这个经验特征函数中来呢？
 3. 怎么避免`Bootstrap`中重复计算`SSGR`的开销？
+4. [@horvath_change_2025]中使用的`CUSUM`统计量，而我的这个论文里面使用的是`Sup-F`统计量，这里面的原理与方法都是不同。
+
+## 检测情况
+
+- [x] 均值情况可以通过检测
+- [x] 方差情况可以通过检测
+- [ ] 分布的变化无法通过检测
+
+> 那么是什么原因导致分布的情况无法通过检测的呢？
+
+> 使用残差查看，为何分布变化的残差差距最小
+> 那这个情况怎么去解决？？？
+
+

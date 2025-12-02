@@ -15,7 +15,7 @@ output:
   pdf_document:
     toc: true
     number_sections: true
-bibliography: ./references.bib
+bibliography: references.bib
 ---
 
 ```{r setup, include=FALSE}
